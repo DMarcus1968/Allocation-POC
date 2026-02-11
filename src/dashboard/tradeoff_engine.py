@@ -27,6 +27,7 @@ from src.allocators.fcfs import allocate_fcfs
 from src.allocators.batch import allocate_batch
 from src.comparison.compare import compute_metrics, compute_delta
 from src.dashboard.explain import explain_run, explain_delta
+from src.dashboard.audit_store import append_audit
 
 
 # ── version tracking ────────────────────────────────────────────────
@@ -105,7 +106,7 @@ def run_preview(
     requests.sort(key=lambda r: r.request_id)
 
     # 6–8. Run allocators and build output
-    return _build_preview_output(
+    result = _build_preview_output(
         scenario=scenario,
         scenario_id=scenario_id,
         event=event,
@@ -113,6 +114,11 @@ def run_preview(
         effective_seed=effective_seed,
         rng=rng,
     )
+
+    # Audit: run
+    _audit_run(scenario_id, result, scenario.created_by, db_path)
+
+    return result
 
 
 def _build_preview_output(
@@ -372,6 +378,34 @@ def run_compare(
         "deltas_vs_fcfs": deltas_vs_fcfs,
         "explainability_deltas": explainability_deltas,
     }
+
+
+# ── audit helper ────────────────────────────────────────────────────
+
+def _audit_run(
+    scenario_id: str,
+    result: dict,
+    actor: str = "system",
+    db_path=None,
+) -> None:
+    """Append a compact 'run' audit entry from a preview result."""
+    manifest = result.get("manifest", {})
+    batch_m = result.get("metrics", {}).get("batch", {})
+    append_audit(
+        scenario_id,
+        "run",
+        actor=actor,
+        payload={
+            "run_id": manifest.get("run_id"),
+            "seed": manifest.get("seed"),
+            "checksum": manifest.get("checksum"),
+            "demand_hash": manifest.get("demand_hash"),
+            "tickets_fulfilled": batch_m.get("tickets_fulfilled"),
+            "accounts_fulfilled_pct": batch_m.get("accounts_fulfilled_pct"),
+            "gross_revenue": batch_m.get("gross_revenue_fixed_pricebook"),
+        },
+        db_path=db_path,
+    )
 
 
 # ── helpers ─────────────────────────────────────────────────────────

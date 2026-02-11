@@ -1,6 +1,7 @@
 """Phase 2B — Streamlit tradeoff dashboard.
 
-UI copy rules: use "Scenario", "Preview", "Impact", "Tradeoff".
+UI copy rules: use "Scenario", "Preview", "Impact", "Tradeoff",
+"Template", "Export", "Audit trail", "Lock scenario".
 Avoid "optimize/recommend/best/fair".
 
 Pricing control is promoter-side and read-only here.
@@ -23,6 +24,8 @@ import streamlit as st
 from src.dashboard import scenario_store
 from src.dashboard.scenario_store import ScenarioLocked
 from src.dashboard.tradeoff_engine import run_preview, run_compare
+from src.dashboard import preset_store
+from src.dashboard.audit_store import list_audits
 
 
 # ── page config ─────────────────────────────────────────────────────
@@ -121,30 +124,80 @@ if scenarios:
             except ValueError as e:
                 st.sidebar.error(str(e))
     with col2:
-        if st.button("Lock"):
-            try:
-                scenario_store.lock_scenario(selected_id)
-                st.sidebar.success("Locked")
-                st.rerun()
-            except ValueError as e:
-                st.sidebar.error(str(e))
+        if st.button("Lock scenario"):
+            st.session_state["confirm_lock"] = selected_id
     with col3:
         if st.button("Delete"):
             scenario_store.delete_scenario(selected_id)
             st.sidebar.success("Deleted")
             st.rerun()
 
+    # Lock confirmation modal
+    if st.session_state.get("confirm_lock") == selected_id:
+        st.sidebar.warning(
+            "Locking makes this scenario immutable. "
+            "Create an editable clone to iterate."
+        )
+        lock_cols = st.sidebar.columns(2)
+        with lock_cols[0]:
+            if st.button("Confirm Lock"):
+                try:
+                    scenario_store.lock_scenario(selected_id)
+                    st.sidebar.success("Locked")
+                    st.session_state.pop("confirm_lock", None)
+                    st.rerun()
+                except ValueError as e:
+                    st.sidebar.error(str(e))
+        with lock_cols[1]:
+            if st.button("Cancel"):
+                st.session_state.pop("confirm_lock", None)
+                st.rerun()
+
 
 # ── main area: tabs ─────────────────────────────────────────────────
 
-tabs = st.tabs(["Scenario Editor", "Preview", "Compare"])
+tabs = st.tabs(["Templates", "Scenario Editor", "Preview", "Compare", "Audit Trail"])
+
+# ── templates tab ──────────────────────────────────────────────────
+
+with tabs[0]:
+    st.subheader("Templates")
+    st.caption("Pre-configured scenario templates. Select one to create a new scenario with those settings.")
+
+    presets = preset_store.list_presets()
+    if not presets:
+        st.info("No templates available.")
+    else:
+        for preset in presets:
+            with st.expander(f"{preset['name']} — {preset['description']}"):
+                st.markdown(f"**Creator:** {preset['creator']}")
+                col_tpc, col_tap = st.columns(2)
+                with col_tpc:
+                    st.markdown("**Promoter constraints:**")
+                    st.json(preset["knobs_promoter_constraints"])
+                with col_tap:
+                    st.markdown("**Allocation policy:**")
+                    st.json(preset["knobs_allocation_policy"])
+
+                if st.button(
+                    f"Create scenario from template",
+                    key=f"apply_{preset['id']}",
+                ):
+                    sc = preset_store.apply_preset_to_new_scenario(
+                        preset["id"], created_by="dashboard_user"
+                    )
+                    st.success(
+                        f"Created scenario '{sc.name}' ({sc.id[:8]}...) "
+                        f"from template '{preset['name']}'."
+                    )
+                    st.rerun()
 
 # ── scenario editor tab ─────────────────────────────────────────────
 
-with tabs[0]:
+with tabs[1]:
     st.subheader("Scenario Editor")
     if not scenarios:
-        st.info("No scenarios yet. Create one in the sidebar.")
+        st.info("No scenarios yet. Create one in the sidebar or from a template.")
     else:
         sc = scenario_store.get_scenario(selected_id)
         if sc is None:
@@ -153,6 +206,12 @@ with tabs[0]:
             st.markdown(f"**ID:** `{sc.id}`")
             st.markdown(f"**Locked:** {sc.locked}")
             st.markdown(f"**Checksum:** `{sc.checksum[:16]}...`")
+
+            if sc.locked:
+                st.info(
+                    "This scenario is locked and cannot be edited. "
+                    "Use Clone to create an editable copy."
+                )
 
             edit_name = st.text_input("Name", value=sc.name, key="edit_name")
             edit_desc = st.text_input(
@@ -167,6 +226,7 @@ with tabs[0]:
                     value=json.dumps(sc.knobs_promoter_constraints, indent=2),
                     height=180,
                     key="edit_pc",
+                    disabled=sc.locked,
                 )
             with col_eap:
                 st.caption(
@@ -177,40 +237,38 @@ with tabs[0]:
                     value=json.dumps(sc.knobs_allocation_policy, indent=2),
                     height=180,
                     key="edit_ap",
+                    disabled=sc.locked,
                 )
 
-            if st.button("Save changes"):
-                if sc.locked:
-                    st.error("This scenario is locked and cannot be updated.")
-                else:
-                    try:
-                        pc = json.loads(edit_pc_raw)
-                        ap = json.loads(edit_ap_raw)
-                    except json.JSONDecodeError:
-                        st.error("Invalid JSON in knob editors")
-                        pc, ap = None, None
+            if st.button("Save changes", disabled=sc.locked):
+                try:
+                    pc = json.loads(edit_pc_raw)
+                    ap = json.loads(edit_ap_raw)
+                except json.JSONDecodeError:
+                    st.error("Invalid JSON in knob editors")
+                    pc, ap = None, None
 
-                    if pc is not None and ap is not None:
-                        try:
-                            updated = scenario_store.update_scenario(
-                                sc.id,
-                                {
-                                    "name": edit_name,
-                                    "description": edit_desc or None,
-                                    "knobs_promoter_constraints": pc,
-                                    "knobs_allocation_policy": ap,
-                                },
-                            )
-                            st.success(
-                                f"Saved. Checksum: {updated.checksum[:16]}..."
-                            )
-                            st.rerun()
-                        except ScenarioLocked:
-                            st.error("Scenario is locked.")
+                if pc is not None and ap is not None:
+                    try:
+                        updated = scenario_store.update_scenario(
+                            sc.id,
+                            {
+                                "name": edit_name,
+                                "description": edit_desc or None,
+                                "knobs_promoter_constraints": pc,
+                                "knobs_allocation_policy": ap,
+                            },
+                        )
+                        st.success(
+                            f"Saved. Checksum: {updated.checksum[:16]}..."
+                        )
+                        st.rerun()
+                    except ScenarioLocked:
+                        st.error("Scenario is locked.")
 
 # ── preview tab ─────────────────────────────────────────────────────
 
-with tabs[1]:
+with tabs[2]:
     st.subheader("Preview")
     if not scenarios:
         st.info("Create a scenario first.")
@@ -268,9 +326,26 @@ with tabs[1]:
                 with st.expander("Lost ticket estimates"):
                     st.json(expl.get("lost_tickets_estimates", {}))
 
+                # Export controls
+                st.markdown("### Export")
+                exp_cols = st.columns(2)
+                with exp_cols[0]:
+                    exp_fmt = st.selectbox(
+                        "Format", ["csv", "json"], key="preview_export_fmt"
+                    )
+                with exp_cols[1]:
+                    exp_expl = st.checkbox(
+                        "Include explainability", value=True, key="preview_export_expl"
+                    )
+                if st.button("Export this run"):
+                    st.info(
+                        f"POST /scenarios/{preview_id}/export "
+                        f"with format={exp_fmt}, include_explainability={exp_expl}"
+                    )
+
 # ── compare tab ─────────────────────────────────────────────────────
 
-with tabs[2]:
+with tabs[3]:
     st.subheader("Scenario Comparison")
     if len(scenarios) < 2:
         st.info("Create at least 2 scenarios to compare.")
@@ -391,6 +466,74 @@ with tabs[2]:
                             st.markdown(f"- {note}")
 
                         st.markdown("---")
+
+# ── audit trail tab ─────────────────────────────────────────────────
+
+with tabs[4]:
+    st.subheader("Audit Trail")
+    if not scenarios:
+        st.info("No scenarios yet.")
+    else:
+        audit_scenario_id = st.selectbox(
+            "Scenario",
+            options=[s.id for s in scenarios],
+            format_func=lambda sid: scenario_names.get(sid, sid),
+            key="audit_select",
+        )
+        audit_limit = st.number_input(
+            "Max entries", value=50, step=10, key="audit_limit"
+        )
+
+        if st.button("Load audit trail"):
+            audits = list_audits(
+                scenario_id=audit_scenario_id,
+                limit=int(audit_limit),
+            )
+            if not audits:
+                st.info("No audit entries for this scenario.")
+            else:
+                for entry in audits:
+                    ts = entry["created_at"]
+                    ev = entry["event"]
+                    actor = entry["actor"]
+                    payload_str = json.dumps(entry["payload"], indent=2)
+                    st.markdown(
+                        f"**{ts}** | `{ev}` | actor: {actor}"
+                    )
+                    with st.expander("Payload"):
+                        st.code(payload_str, language="json")
+
+        if st.button("Download audit as CSV"):
+            audits = list_audits(
+                scenario_id=audit_scenario_id,
+                limit=1000,
+            )
+            if audits:
+                import csv as csv_mod
+                import io
+
+                buf = io.StringIO()
+                columns = ["id", "scenario_id", "event", "actor", "payload", "created_at"]
+                writer = csv_mod.DictWriter(buf, fieldnames=columns)
+                writer.writeheader()
+                for a in audits:
+                    writer.writerow({
+                        "id": a["id"],
+                        "scenario_id": a["scenario_id"],
+                        "event": a["event"],
+                        "actor": a["actor"],
+                        "payload": json.dumps(a["payload"]),
+                        "created_at": a["created_at"],
+                    })
+                st.download_button(
+                    label="Download CSV",
+                    data=buf.getvalue(),
+                    file_name=f"{audit_scenario_id}_audits.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.info("No audit entries to export.")
+
 
 # ── footer ──────────────────────────────────────────────────────────
 st.markdown("---")

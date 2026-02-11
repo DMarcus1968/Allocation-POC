@@ -18,6 +18,8 @@ from datetime import datetime
 from pathlib import Path
 
 from src.models.scenario import Scenario, split_knobs, merge_knobs
+from src.dashboard.audit_store import init_audit_table, append_audit
+from src.dashboard.preset_store import init_presets_table
 
 _DB_DIR = Path(__file__).resolve().parents[2] / ".data"
 _DB_PATH = _DB_DIR / "scenarios.sqlite"
@@ -38,7 +40,10 @@ def _get_conn(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def init_db(db_path: Path | None = None) -> None:
-    """Create the scenarios table if it does not exist, and migrate."""
+    """Create the scenarios table if it does not exist, and migrate.
+
+    Also initializes the audit and presets tables.
+    """
     conn = _get_conn(db_path)
     try:
         conn.execute("""
@@ -64,6 +69,10 @@ def init_db(db_path: Path | None = None) -> None:
         _migrate_add_knob_columns(conn)
     finally:
         conn.close()
+
+    # Initialize audit and presets tables in the same DB
+    init_audit_table(db_path)
+    init_presets_table(db_path)
 
 
 def _migrate_add_knob_columns(conn: sqlite3.Connection) -> None:
@@ -217,6 +226,20 @@ def create_scenario(payload: dict, db_path: Path | None = None) -> Scenario:
     finally:
         conn.close()
 
+    # Audit: create
+    append_audit(
+        scenario.id,
+        "create",
+        actor=scenario.created_by,
+        payload={
+            "name": scenario.name,
+            "knobs_promoter_constraints": list(scenario.knobs_promoter_constraints.keys()),
+            "knobs_allocation_policy": list(scenario.knobs_allocation_policy.keys()),
+            "checksum": scenario.checksum,
+        },
+        db_path=db_path,
+    )
+
     return scenario
 
 
@@ -295,6 +318,20 @@ def update_scenario(
     finally:
         conn.close()
 
+    # Audit: update
+    changed_keys = [k for k in payload if k not in ("created_by",)]
+    append_audit(
+        scenario.id,
+        "update",
+        actor=existing.created_by,
+        payload={
+            "before_checksum": existing.checksum,
+            "after_checksum": scenario.checksum,
+            "changed_keys": changed_keys,
+        },
+        db_path=db_path,
+    )
+
     return scenario
 
 
@@ -307,7 +344,7 @@ def clone_scenario(
     if existing is None:
         raise ValueError(f"Scenario {scenario_id} not found")
 
-    return create_scenario(
+    cloned = create_scenario(
         {
             "name": f"{existing.name} (clone)",
             "description": existing.description,
@@ -319,6 +356,20 @@ def clone_scenario(
         },
         db_path,
     )
+
+    # Audit: clone (in addition to the create audit from create_scenario)
+    append_audit(
+        cloned.id,
+        "clone",
+        actor=existing.created_by,
+        payload={
+            "source_id": existing.id,
+            "new_id": cloned.id,
+        },
+        db_path=db_path,
+    )
+
+    return cloned
 
 
 def lock_scenario(
@@ -341,7 +392,21 @@ def lock_scenario(
     finally:
         conn.close()
 
-    return get_scenario(scenario_id, db_path)  # type: ignore[return-value]
+    locked_sc = get_scenario(scenario_id, db_path)
+
+    # Audit: lock
+    append_audit(
+        scenario_id,
+        "lock",
+        actor=existing.created_by,
+        payload={
+            "locked_by": existing.created_by,
+            "locked_at": now,
+        },
+        db_path=db_path,
+    )
+
+    return locked_sc  # type: ignore[return-value]
 
 
 def delete_scenario(

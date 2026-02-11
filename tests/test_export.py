@@ -237,7 +237,7 @@ class TestPresetAPI:
                 "name": "Custom",
                 "description": "Test",
                 "knobs_promoter_constraints": {"per_account_cap": 2},
-                "knobs_allocation_policy": {"priority_mode": "loyalty"},
+                "knobs_allocation_policy": {"priority_mode": "promoter_provided_tier"},
             }),
             content_type="application/json",
         )

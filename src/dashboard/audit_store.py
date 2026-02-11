@@ -139,6 +139,8 @@ def append_audit(
     """Insert an audit entry. Returns the audit id.
 
     Automatically redacts the actor and bounds the payload.
+    For run events, entity.id is the run_id from the payload
+    (if present) rather than the scenario_id.
     """
     audit_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -148,6 +150,11 @@ def append_audit(
     raw_details = payload or {}
     bounded = bound_payload(raw_details)
 
+    # For run events, entity.id should be the run_id
+    entity_id = scenario_id
+    if event in (PREVIEW_RUN, COMPARE_RUN) and "run_id" in raw_details:
+        entity_id = raw_details["run_id"]
+
     # Build canonical payload
     canonical = {
         "event": event,
@@ -156,7 +163,7 @@ def append_audit(
         "timestamp": now,
         "entity": {
             "type": _entity_type(event),
-            "id": scenario_id,
+            "id": entity_id,
         },
         "summary": summary or _default_summary(event),
         "details": bounded,

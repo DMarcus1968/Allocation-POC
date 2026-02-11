@@ -169,9 +169,9 @@ def _build_preview_output(
         rng=batch_rng,
     )
 
-    # Compute metrics
-    fcfs_metrics = compute_metrics(event, fcfs_result)
-    batch_metrics = compute_metrics(event, batch_result)
+    # Compute metrics — pass requests so denominator is total requesting accounts
+    fcfs_metrics = compute_metrics(event, fcfs_result, requests=requests)
+    batch_metrics = compute_metrics(event, batch_result, requests=requests)
     delta = compute_delta(fcfs_metrics, batch_metrics)
 
     # Config hashes for reproducibility
@@ -463,7 +463,7 @@ def _audit_run(
             "demand_hash": manifest.get("demand_hash"),
             "tickets_fulfilled": batch_m.get("tickets_fulfilled"),
             "accounts_fulfilled_pct": batch_m.get("accounts_fulfilled_pct"),
-            "gross_revenue": batch_m.get("gross_revenue_fixed_pricebook"),
+            "gross_revenue_fixed_pricebook": batch_m.get("gross_revenue_fixed_pricebook"),
         },
         db_path=db_path,
     )

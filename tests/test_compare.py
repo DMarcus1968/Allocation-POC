@@ -66,4 +66,4 @@ class TestMetrics:
         batch_m = compute_metrics(event, batch)
         delta = compute_delta(fcfs_m, batch_m)
 
-        assert "revenue_delta_vs_fcfs" in delta
+        assert "gross_revenue_fixed_pricebook" in delta

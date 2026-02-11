@@ -17,7 +17,7 @@ class DemandConfig:
     section_preference_weights: dict[str, float] | None = None
     wtp_mean: float = 100.0   # diagnostic only — does NOT drive allocation
     wtp_std: float = 30.0     # diagnostic only — does NOT drive allocation
-    loyalty_score_range: tuple[float, float] = (0.0, 100.0)
+    loyalty_score_range: tuple[float, float] = (0.0, 100.0)  # promoter-provided tier score
 
 
 @dataclass
@@ -29,5 +29,5 @@ class TicketRequest:
     request_id: str = ""
     section_preferences: list[str] = field(default_factory=list)
     wtp: float = 0.0           # diagnostic only — does NOT drive allocation
-    loyalty_score: float = 0.0
+    loyalty_score: float = 0.0  # promoter-provided tier score
     arrival_order: int = 0

@@ -101,7 +101,7 @@ class TestPreviewOutput:
     def test_delta_fields(self, scenario_id: str, db_path: Path):
         result = run_preview(scenario_id, seed=42, db_path=db_path)
         delta = result["metrics"]["delta_batch_vs_fcfs"]
-        assert "revenue_delta_vs_fcfs" in delta
+        assert "gross_revenue_fixed_pricebook" in delta
 
     def test_explainability_section_aware(self, scenario_id: str, db_path: Path):
         result = run_preview(scenario_id, seed=42, db_path=db_path)
@@ -209,7 +209,7 @@ class TestCompare:
             {
                 "name": "Alt",
                 "knobs_promoter_constraints": {"per_account_cap": 2, "holdback_pct": 0.1},
-                "knobs_allocation_policy": {"priority_mode": "loyalty"},
+                "knobs_allocation_policy": {"priority_mode": "promoter_provided_tier"},
             },
             db_path,
         )

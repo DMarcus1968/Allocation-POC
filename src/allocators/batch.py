@@ -25,7 +25,7 @@ DEFAULT_KNOBS: dict = {
     "per_account_cap": 4,
     "group_size_cap": 6,
     "holdback_pct": 0.0,
-    "priority_mode": "random",      # "random" | "loyalty" | "fifo"
+    "priority_mode": "random",      # "random" | "promoter_provided_tier" | "fifo"
     "singles_avoidance": True,
     # section_eligibility: optional dict[str, bool]
 }
@@ -247,7 +247,7 @@ def _prioritize(
     reqs = list(requests)
     if mode == "fifo":
         reqs.sort(key=lambda r: r.arrival_order)
-    elif mode == "loyalty":
+    elif mode in ("promoter_provided_tier", "loyalty"):
         reqs.sort(key=lambda r: (-r.loyalty_score, r.arrival_order))
     elif mode == "random":
         rng.shuffle(reqs)

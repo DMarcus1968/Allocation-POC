@@ -1,4 +1,4 @@
-"""Tests for the audit trail (Phase 2B Steps 7-8)."""
+"""Tests for the audit trail (Phase 2B Steps 7-9)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from src.dashboard.audit_store import (
     redact_actor,
     stable_json,
 )
+from src.dashboard.explain import sanitize_notes
 from src.dashboard.tradeoff_engine import run_preview
 
 
@@ -77,6 +78,43 @@ class TestStableJson:
     def test_compact(self):
         result = stable_json({"key": "value"})
         assert " " not in result
+
+
+class TestSanitizeNotes:
+    def test_empty_returns_default(self):
+        assert sanitize_notes([]) == "No binding constraints detected."
+
+    def test_strips_uuids(self):
+        notes = ["Run f47ac10b-58cc-4372-a567-0e02b2c3d479 completed."]
+        result = sanitize_notes(notes)
+        assert "f47ac10b" not in result
+        assert "completed" in result
+
+    def test_strips_long_hex_tokens(self):
+        notes = ["Hash: abc123def456789 detected."]
+        result = sanitize_notes(notes)
+        assert "abc123def456789" not in result
+
+    def test_strips_internal_tokens(self):
+        notes = ["request_id acct_000123 was processed."]
+        result = sanitize_notes(notes)
+        assert "request_id" not in result
+        assert "acct_000123" not in result
+
+    def test_truncates_to_max_chars(self):
+        notes = ["A" * 200, "B" * 200]
+        result = sanitize_notes(notes, max_chars=100)
+        assert len(result) <= 100
+
+    def test_joins_with_pipe(self):
+        notes = ["Note one.", "Note two."]
+        result = sanitize_notes(notes)
+        assert " | " in result
+
+    def test_normal_notes_pass_through(self):
+        notes = ["Per account cap (4): 12 binding(s)."]
+        result = sanitize_notes(notes)
+        assert "Per account cap" in result
 
 
 class TestAuditAppend:
@@ -213,6 +251,14 @@ class TestAuditFromRun:
         assert "checksum" in details
         assert "demand_hash" in details
         assert "tickets_fulfilled" in details
+        assert "gross_revenue_fixed_pricebook" in details
+
+        # entity.id should be run_id, not scenario_id
+        entity = run_audit["payload"]["entity"]
+        assert entity["type"] == "run"
+        assert entity["id"] == details["run_id"]
+        # scenario_id remains at top level
+        assert run_audit["payload"]["scenario_id"] == sc.id
 
     def test_run_manifest_has_config_hashes(self, db_path: Path):
         sc = create_scenario(

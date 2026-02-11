@@ -153,9 +153,9 @@ class TestKnobTaxonomy:
     def test_scenario_sub_dicts_authoritative(self):
         s = Scenario(
             knobs_promoter_constraints={"per_account_cap": 2},
-            knobs_allocation_policy={"priority_mode": "loyalty"},
+            knobs_allocation_policy={"priority_mode": "promoter_provided_tier"},
         )
-        assert s.knobs == {"per_account_cap": 2, "priority_mode": "loyalty"}
+        assert s.knobs == {"per_account_cap": 2, "priority_mode": "promoter_provided_tier"}
 
     def test_to_dict_includes_sub_dicts(self):
         s = Scenario(knobs={"per_account_cap": 4, "priority_mode": "random"})
@@ -170,13 +170,13 @@ class TestKnobTaxonomy:
             {
                 "name": "Categorized",
                 "knobs_promoter_constraints": {"per_account_cap": 3, "holdback_pct": 0.1},
-                "knobs_allocation_policy": {"priority_mode": "loyalty"},
+                "knobs_allocation_policy": {"priority_mode": "promoter_provided_tier"},
             },
             db_path,
         )
         assert sc.knobs_promoter_constraints == {"per_account_cap": 3, "holdback_pct": 0.1}
-        assert sc.knobs_allocation_policy == {"priority_mode": "loyalty"}
-        assert sc.knobs == {"holdback_pct": 0.1, "per_account_cap": 3, "priority_mode": "loyalty"}
+        assert sc.knobs_allocation_policy == {"priority_mode": "promoter_provided_tier"}
+        assert sc.knobs == {"holdback_pct": 0.1, "per_account_cap": 3, "priority_mode": "promoter_provided_tier"}
 
     def test_update_scenario_with_categorized_knobs(self, db_path: Path):
         sc = create_scenario(
@@ -187,12 +187,12 @@ class TestKnobTaxonomy:
             sc.id,
             {
                 "knobs_promoter_constraints": {"per_account_cap": 2},
-                "knobs_allocation_policy": {"priority_mode": "loyalty"},
+                "knobs_allocation_policy": {"priority_mode": "promoter_provided_tier"},
             },
             db_path,
         )
         assert updated.knobs_promoter_constraints == {"per_account_cap": 2}
-        assert updated.knobs_allocation_policy == {"priority_mode": "loyalty"}
+        assert updated.knobs_allocation_policy == {"priority_mode": "promoter_provided_tier"}
 
     @pytest.fixture()
     def db_path(self, tmp_path: Path) -> Path:

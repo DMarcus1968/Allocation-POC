@@ -393,10 +393,17 @@ with tabs[3]:
                         result = None
 
                 if result:
-                    st.markdown("### FCFS Baseline")
-                    st.json(result["fcfs_baseline"])
+                    # ── Section 1: What changed ──────────────────────
+                    st.markdown("### 1. What changed")
+                    st.caption(
+                        "Side-by-side metrics for each scenario under "
+                        "identical demand. FCFS baseline is pinned."
+                    )
 
-                    st.markdown("### Scenario Metrics (Batch)")
+                    st.markdown("**FCFS Baseline**")
+                    st.json(result["fcfs_baseline"]["metrics"])
+
+                    st.markdown("**Scenario Metrics (Batch)**")
                     table_data = []
                     for sm in result["scenario_metrics"]:
                         row = {"Scenario": sm["scenario_name"]}
@@ -404,8 +411,8 @@ with tabs[3]:
                         table_data.append(row)
                     st.table(table_data)
 
-                    st.markdown("### Tradeoff Points")
-                    st.markdown(
+                    st.markdown("**Tradeoff Points**")
+                    st.caption(
                         "x = Accounts Fulfilled %, "
                         "y = Gross Revenue (fixed pricebook)"
                     )
@@ -417,13 +424,17 @@ with tabs[3]:
                                 "Accounts Fulfilled %": pt[
                                     "x_accounts_fulfilled_pct"
                                 ],
-                                "Gross Revenue": pt["y_gross_revenue"],
+                                "Gross Revenue (fixed pricebook)": pt["y_gross_revenue"],
                             }
                         )
                     st.table(pareto_table)
 
-                    # "Why results changed" panel
-                    st.markdown("### Why Results Changed")
+                    # ── Section 2: Why it changed ────────────────────
+                    st.markdown("### 2. Why it changed")
+                    st.caption(
+                        "Knob differences and constraint-binding shifts "
+                        "that explain the outcome deltas above."
+                    )
                     for ed in result.get("explainability_deltas", []):
                         base_name = scenario_names.get(
                             ed["base_scenario_id"],
@@ -462,13 +473,32 @@ with tabs[3]:
                                     f"{shift['alt']} ({shift['change']:+d})"
                                 )
 
-                        # Outcome deltas
+                        st.markdown("---")
+
+                    # ── Section 3: What it costs ─────────────────────
+                    st.markdown("### 3. What it costs")
+                    st.caption(
+                        "Revenue, access, and inventory impact of each "
+                        "scenario relative to the baseline."
+                    )
+                    for ed in result.get("explainability_deltas", []):
+                        alt_name = scenario_names.get(
+                            ed["alt_scenario_id"],
+                            ed["alt_scenario_id"][:8],
+                        )
+                        base_name = scenario_names.get(
+                            ed["base_scenario_id"],
+                            ed["base_scenario_id"][:8],
+                        )
+                        delta = ed["delta"]
+
                         if delta.get("outcome_deltas"):
-                            st.markdown("*Outcome impact:*")
+                            st.markdown(f"**{alt_name} vs {base_name}:**")
                             od = delta["outcome_deltas"]
-                            for key, val in od.items():
+                            for key, val in sorted(od.items()):
                                 if val != 0:
-                                    st.markdown(f"- {key}: {val:+}")
+                                    label = key.replace("_", " ").capitalize()
+                                    st.markdown(f"- {label}: {val:+}")
 
                         # Notes
                         for note in delta.get("notes", []):

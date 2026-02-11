@@ -15,12 +15,18 @@ from src.objectives.revenue import compute_revenue
 def compute_metrics(
     event: EventConfig,
     result: AllocationResult,
+    *,
+    requests: list | None = None,
 ) -> MetricsSummary:
     """Compute normalized metrics for an allocation result.
 
     Args:
         event: Event configuration (sections, pricebook).
         result: Allocation result to evaluate.
+        requests: Original request list. When provided, total requesting
+            accounts is derived from the input (not just allocations +
+            rejections), ensuring the denominator for
+            ``accounts_fulfilled_pct`` reflects all demand.
 
     Returns:
         MetricsSummary with all required metrics.
@@ -38,9 +44,13 @@ def compute_metrics(
         )
         tickets_fulfilled += alloc.qty_allocated
 
-    rejected_accounts = {r.account_id for r in result.rejections}
-    all_accounts = fulfilled_accounts | rejected_accounts
-    total_accounts = len(all_accounts)
+    # Total requesting accounts: prefer input-side count when available
+    if requests is not None:
+        total_accounts = len({r.account_id for r in requests})
+    else:
+        rejected_accounts = {r.account_id for r in result.rejections}
+        all_accounts = fulfilled_accounts | rejected_accounts
+        total_accounts = len(all_accounts)
 
     accounts_fulfilled_pct = (
         (len(fulfilled_accounts) / total_accounts * 100)
@@ -107,11 +117,6 @@ def compute_delta(
             alt.unsold_inventory_count - base.unsold_inventory_count
         ),
         "gross_revenue_fixed_pricebook": round(
-            alt.gross_revenue_fixed_pricebook
-            - base.gross_revenue_fixed_pricebook,
-            2,
-        ),
-        "revenue_delta_vs_fcfs": round(
             alt.gross_revenue_fixed_pricebook
             - base.gross_revenue_fixed_pricebook,
             2,

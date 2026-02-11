@@ -9,8 +9,15 @@ changes by promoter constraints vs allocation policy.
 
 from __future__ import annotations
 
+import re
+
 from src.models.allocation import AllocationResult
 from src.models.scenario import Scenario, PROMOTER_CONSTRAINT_KEYS
+
+# Regex patterns for sanitization
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+_HEX_TOKEN_RE = re.compile(r"\b[0-9a-f]{13,}\b", re.I)
+_INTERNAL_TOKEN_RE = re.compile(r"\b(request_id|account_id|acct_\d+|req_\d+)\b")
 
 # Promoter-safe label mapping for priority_mode values
 _PRIORITY_MODE_LABELS: dict[str, str] = {
@@ -27,6 +34,38 @@ def _safe_value_label(knob: str, value) -> str:
     if knob == "priority_mode" and isinstance(value, str):
         return _PRIORITY_MODE_LABELS.get(value, value)
     return str(value)
+
+
+def sanitize_notes(notes: list[str], max_chars: int = 300) -> str:
+    """Produce a single safe string from explainability notes.
+
+    Rules:
+      - Join bullets with " | "
+      - Strip UUIDs, long hex tokens (>12 hex chars), and internal
+        identifiers (request_id, account_id, acct_*, req_*)
+      - Truncate to *max_chars*
+      - Return a default message if empty
+    """
+    if not notes:
+        return "No binding constraints detected."
+
+    parts: list[str] = []
+    for note in notes[:10]:
+        cleaned = _UUID_RE.sub("", note)
+        cleaned = _HEX_TOKEN_RE.sub("", cleaned)
+        cleaned = _INTERNAL_TOKEN_RE.sub("", cleaned)
+        # Collapse multiple spaces left by removals
+        cleaned = re.sub(r"  +", " ", cleaned).strip()
+        if cleaned:
+            parts.append(cleaned)
+
+    if not parts:
+        return "No binding constraints detected."
+
+    joined = " | ".join(parts)
+    if len(joined) > max_chars:
+        joined = joined[: max_chars - 3] + "..."
+    return joined
 
 
 def explain_run(

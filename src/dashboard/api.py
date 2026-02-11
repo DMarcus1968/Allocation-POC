@@ -20,6 +20,7 @@ from src.dashboard import scenario_store
 from src.dashboard.scenario_store import ScenarioLocked
 from src.dashboard.tradeoff_engine import run_preview, run_compare
 from src.dashboard.audit_store import append_audit, list_audits
+from src.dashboard.explain import sanitize_notes
 from src.dashboard import preset_store
 
 app = Flask(__name__)
@@ -264,9 +265,9 @@ def export_scenario(scenario_id: str):
     manifest = result["manifest"]
     batch_m = result["metrics"]["batch"]
     expl_notes = result.get("explainability", {}).get("notes", [])
-    # Truncate each bullet to 200 chars, max 10 bullets
     safe_notes = [n[:200] for n in expl_notes[:10]]
-    expl_summary = "; ".join(safe_notes)[:500] if include_expl else ""
+    # sanitize_notes strips UUIDs/hashes/internal tokens and caps length
+    expl_summary = sanitize_notes(expl_notes, max_chars=300) if include_expl else ""
 
     actor = body.get("actor", sc.created_by)
     config_hashes = manifest.get("config_hashes", {})

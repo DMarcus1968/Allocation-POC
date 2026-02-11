@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Allocation POC{% endblock %}
+
+{% block head %}
+<style>
+    .login-page {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #0066cc 100%);
+    }
+
+    .login-card {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        padding: 48px 40px;
+        width: 100%;
+        max-width: 420px;
+        margin: 20px;
+    }
+
+    .login-header {
+        text-align: center;
+        margin-bottom: 32px;
+    }
+
+    .login-header h1 {
+        font-size: 24px;
+        color: var(--gray-900);
+        margin-bottom: 8px;
+    }
+
+    .login-header p {
+        color: var(--gray-500);
+        font-size: 14px;
+    }
+
+    .login-icon {
+        width: 64px;
+        height: 64px;
+        background: var(--blue-light);
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 16px;
+        font-size: 28px;
+    }
+
+    .login-form input {
+        padding: 14px 16px;
+        font-size: 16px;
+        margin-bottom: 16px;
+    }
+
+    .login-form .btn {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="login-page">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-icon">&#x1f3ab;</div>
+            <h1>Allocation POC</h1>
+            <p>Ticket allocation proof of concept</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <form class="login-form" method="POST" action="{{ url_for('login') }}">
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password"
+                       placeholder="Enter your password" autofocus required>
+            </div>
+            <button type="submit" class="btn btn-primary">Sign In</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

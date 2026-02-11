@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+
+{% block title %}Results - Allocation POC{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <a href="{{ url_for('dashboard') }}" class="navbar-brand">
+        Allocation POC <span>Proof of Concept</span>
+    </a>
+    <div class="navbar-links">
+        <a href="{{ url_for('dashboard') }}">New Simulation</a>
+        <a href="{{ url_for('results') }}" class="active">Results</a>
+        <a href="{{ url_for('logout') }}">Log Out</a>
+    </div>
+</nav>
+
+<div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="flash flash-{{ category }}">{{ message }}</div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <!-- Event Summary -->
+    <div class="card">
+        <h2>Event: {{ event.name }}</h2>
+        <p class="text-muted mb-16">{{ event.venue }} &middot; {{ event.total_requests }} fan requests &middot; Demand multiplier: {{ event.demand_multiplier }}x</p>
+
+        <div class="grid-4">
+            {% for section in event.sections %}
+            <div class="stat-card">
+                <div class="stat-value">{{ section.capacity | int }}</div>
+                <div class="stat-label">{{ section.name }}</div>
+                <div class="text-muted" style="font-size: 13px;">${{ "%.2f"|format(section.price) }}</div>
+            </div>
+            {% endfor %}
+            <div class="stat-card">
+                <div class="stat-value">{{ event.sections | map(attribute='capacity') | sum }}</div>
+                <div class="stat-label">Total Capacity</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Side-by-side Comparison -->
+    <div class="card">
+        <h2>Strategy Comparison</h2>
+        <p class="text-muted mb-16">How each allocation strategy performed on the same demand pool.</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    {% for key, data in comparison.items() %}
+                    <th>{{ data.name }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Tickets Sold</strong></td>
+                    {% for key, data in comparison.items() %}
+                    <td>{{ data.explanation.summary.tickets_sold | int }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td><strong>Unique Fans Served</strong></td>
+                    {% for key, data in comparison.items() %}
+                    <td>{{ data.explanation.summary.unique_fans_served | int }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td><strong>Fan Success Rate</strong></td>
+                    {% for key, data in comparison.items() %}
+                    <td>
+                        <span class="badge {% if data.explanation.summary.fan_success_rate > 60 %}badge-green{% elif data.explanation.summary.fan_success_rate > 40 %}badge-orange{% else %}badge-red{% endif %}">
+                            {{ data.explanation.summary.fan_success_rate }}%
+                        </span>
+                    </td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td><strong>Fill Rate</strong></td>
+                    {% for key, data in comparison.items() %}
+                    <td>{{ data.explanation.summary.fill_rate }}%</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td><strong>Total Revenue</strong></td>
+                    {% for key, data in comparison.items() %}
+                    <td>${{ "{:,.2f}".format(data.explanation.summary.total_revenue) }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td><strong>Fans Waitlisted</strong></td>
+                    {% for key, data in comparison.items() %}
+                    <td>{{ data.explanation.summary.fans_waitlisted | int }}</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td><strong>Fans Rejected</strong></td>
+                    {% for key, data in comparison.items() %}
+                    <td>{{ data.explanation.summary.fans_rejected | int }}</td>
+                    {% endfor %}
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Visual Comparison Charts -->
+    <div class="card">
+        <h2>Visual Comparison</h2>
+
+        <h3 class="mt-16">Unique Fans Served</h3>
+        <div class="bar-chart-container" id="fansChart"></div>
+
+        <h3 class="mt-16">Total Revenue</h3>
+        <div class="bar-chart-container" id="revenueChart"></div>
+
+        <h3 class="mt-16">Fan Success Rate (%)</h3>
+        <div class="bar-chart-container" id="successChart"></div>
+    </div>
+
+    <!-- Strategy Tabs for Details -->
+    <div class="card">
+        <h2>Detailed Strategy Analysis</h2>
+        <p class="text-muted mb-16">Click a strategy tab to see its full breakdown and explanation.</p>
+
+        <div class="tab-nav" id="strategyTabs">
+            {% for key, data in comparison.items() %}
+            <button class="tab-btn {% if loop.first %}active{% endif %}"
+                    onclick="showTab('{{ key }}')">
+                {{ data.name }}
+            </button>
+            {% endfor %}
+        </div>
+
+        {% for key, data in comparison.items() %}
+        <div class="tab-content {% if loop.first %}active{% endif %}" id="tab-{{ key }}">
+
+            <!-- Objective -->
+            <div class="explanation-box">
+                <strong>Objective:</strong> {{ data.explanation.objective }}
+            </div>
+
+            <!-- Constraints -->
+            <h3 class="mt-16">Constraints Applied (set by rights owner)</h3>
+            <ul style="margin: 8px 0 16px 20px; color: var(--gray-700); font-size: 14px;">
+                {% for c in data.explanation.constraints_applied %}
+                <li>{{ c }}</li>
+                {% endfor %}
+            </ul>
+
+            <!-- Section Breakdown -->
+            <h3 class="mt-16">Section Breakdown</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Section</th>
+                        <th>Price</th>
+                        <th>Capacity</th>
+                        <th>Tickets Sold</th>
+                        <th>Fill Rate</th>
+                        <th>Fans Served</th>
+                        <th>Waitlisted</th>
+                        <th>Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sec_name, sec in data.explanation.sections.items() %}
+                    <tr>
+                        <td><strong>{{ sec_name }}</strong></td>
+                        <td>${{ "%.2f"|format(sec.price) }}</td>
+                        <td>{{ sec.capacity | int }}</td>
+                        <td>{{ sec.tickets_sold | int }}</td>
+                        <td>
+                            <span class="badge {% if sec.fill_rate > 90 %}badge-green{% elif sec.fill_rate > 50 %}badge-orange{% else %}badge-red{% endif %}">
+                                {{ sec.fill_rate }}%
+                            </span>
+                        </td>
+                        <td>{{ sec.fans_served | int }}</td>
+                        <td>{{ sec.fans_waitlisted | int }}</td>
+                        <td>${{ "{:,.2f}".format(sec.revenue) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <!-- Fan Type Breakdown -->
+            <h3 class="mt-16">Fan Type Breakdown</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fan Type</th>
+                        <th>Total Requests</th>
+                        <th>Fans Served</th>
+                        <th>Success Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ft, stats in data.explanation.fan_types.items() %}
+                    <tr>
+                        <td><strong>{{ ft | replace("_", " ") | title }}</strong></td>
+                        <td>{{ stats.total_requests | int }}</td>
+                        <td>{{ stats.fans_served | int }}</td>
+                        <td>
+                            <span class="badge {% if stats.success_rate > 60 %}badge-green{% elif stats.success_rate > 40 %}badge-orange{% else %}badge-red{% endif %}">
+                                {{ stats.success_rate }}%
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <!-- Alternatives Considered -->
+            <h3 class="mt-16">Alternative Strategies Considered</h3>
+            <div style="margin-top: 8px;">
+                {% for alt in data.explanation.alternatives_considered %}
+                <div class="explanation-box" style="border-left-color: var(--gray-500);">
+                    <strong>{{ alt.strategy }}:</strong> {{ alt.tradeoff }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="text-center mt-16" style="padding-bottom: 40px;">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary" style="margin-right: 12px;">
+            Run Another Simulation
+        </a>
+    </div>
+</div>
+
+<script>
+// Tab switching
+function showTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tabId).classList.add('active');
+    event.target.classList.add('active');
+}
+
+// Chart rendering
+const colors = ['#0066cc', '#28a745', '#fd7e14', '#dc3545', '#6f42c1'];
+const comparison = {{ comparison | tojson }};
+
+function renderBarChart(containerId, valueKey, prefix, suffix) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const entries = Object.entries(comparison);
+    const values = entries.map(([k, d]) => {
+        let v = d.explanation.summary[valueKey];
+        return typeof v === 'string' ? parseFloat(v) : v;
+    });
+    const maxVal = Math.max(...values);
+
+    container.innerHTML = '';
+    entries.forEach(([key, data], i) => {
+        const val = values[i];
+        const height = maxVal > 0 ? (val / maxVal) * 160 : 4;
+        const group = document.createElement('div');
+        group.className = 'bar-group';
+        group.innerHTML = `
+            <div class="bar-value">${prefix || ''}${typeof val === 'number' && val > 999 ? val.toLocaleString() : val}${suffix || ''}</div>
+            <div class="bar" style="height: ${height}px; background: ${colors[i % colors.length]};"></div>
+            <div class="bar-label">${data.name}</div>
+        `;
+        container.appendChild(group);
+    });
+}
+
+renderBarChart('fansChart', 'unique_fans_served', '', '');
+renderBarChart('revenueChart', 'total_revenue', '$', '');
+renderBarChart('successChart', 'fan_success_rate', '', '%');
+</script>
+{% endblock %}

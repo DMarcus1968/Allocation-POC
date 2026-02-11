@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Allocation POC{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <a href="{{ url_for('dashboard') }}" class="navbar-brand">
+        Allocation POC <span>Proof of Concept</span>
+    </a>
+    <div class="navbar-links">
+        <a href="{{ url_for('dashboard') }}" class="active">New Simulation</a>
+        <a href="{{ url_for('results') }}">Results</a>
+        <a href="{{ url_for('logout') }}">Log Out</a>
+    </div>
+</nav>
+
+<div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="flash flash-{{ category }}">{{ message }}</div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('run_allocation') }}" id="allocationForm">
+
+        <!-- Event Setup -->
+        <div class="card">
+            <h2>1. Event Setup</h2>
+            <p class="text-muted mb-16">Define the event details. These represent the rights owner's constraints.</p>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="event_name">Event Name</label>
+                    <input type="text" id="event_name" name="event_name"
+                           value="Summer Music Festival" placeholder="e.g. Summer Concert">
+                </div>
+                <div class="form-group">
+                    <label for="venue_name">Venue</label>
+                    <input type="text" id="venue_name" name="venue_name"
+                           value="City Arena" placeholder="e.g. City Arena">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="max_per_person">Maximum Tickets Per Person</label>
+                <div class="hint">Set by the rights owner to control distribution</div>
+                <input type="number" id="max_per_person" name="max_per_person"
+                       value="4" min="1" max="10" style="max-width: 120px;">
+            </div>
+        </div>
+
+        <!-- Sections -->
+        <div class="card">
+            <h2>2. Venue Sections</h2>
+            <p class="text-muted mb-16">Define ticket sections with capacity and pricing. Prices are set by the rights owner (promoter/artist/team).</p>
+
+            <div id="sectionsContainer">
+                <div class="section-row grid-3 mb-8" data-index="0">
+                    <div class="form-group">
+                        <label>Section Name</label>
+                        <input type="text" name="section_name[]" value="Floor" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Capacity</label>
+                        <input type="number" name="section_capacity[]" value="500" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Price ($)</label>
+                        <input type="number" name="section_price[]" value="250" min="1" step="0.01" required>
+                    </div>
+                </div>
+                <div class="section-row grid-3 mb-8" data-index="1">
+                    <div class="form-group">
+                        <label>Section Name</label>
+                        <input type="text" name="section_name[]" value="Lower Bowl">
+                    </div>
+                    <div class="form-group">
+                        <label>Capacity</label>
+                        <input type="number" name="section_capacity[]" value="2000" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Price ($)</label>
+                        <input type="number" name="section_price[]" value="150" min="1" step="0.01">
+                    </div>
+                </div>
+                <div class="section-row grid-3 mb-8" data-index="2">
+                    <div class="form-group">
+                        <label>Section Name</label>
+                        <input type="text" name="section_name[]" value="Upper Bowl">
+                    </div>
+                    <div class="form-group">
+                        <label>Capacity</label>
+                        <input type="number" name="section_capacity[]" value="5000" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Price ($)</label>
+                        <input type="number" name="section_price[]" value="75" min="1" step="0.01">
+                    </div>
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-secondary btn-sm mt-8" onclick="addSection()">
+                + Add Section
+            </button>
+        </div>
+
+        <!-- Demand Simulation -->
+        <div class="card">
+            <h2>3. Demand Simulation</h2>
+            <p class="text-muted mb-16">Configure how synthetic fan demand is generated. Higher multipliers mean more competition for tickets.</p>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="demand_multiplier">Demand Multiplier</label>
+                    <div class="hint">1.5 = 50% more demand than supply. 3.0 = 3x oversubscribed.</div>
+                    <input type="number" id="demand_multiplier" name="demand_multiplier"
+                           value="2.0" min="0.5" max="10" step="0.1" style="max-width: 120px;">
+                </div>
+                <div class="form-group">
+                    <label for="seed">Random Seed</label>
+                    <div class="hint">Same seed = same results. Change to see different scenarios.</div>
+                    <input type="number" id="seed" name="seed"
+                           value="42" min="1" max="9999" style="max-width: 120px;">
+                </div>
+            </div>
+        </div>
+
+        <!-- Strategy Selection -->
+        <div class="card">
+            <h2>4. Allocation Strategies</h2>
+            <p class="text-muted mb-16">Select which strategies to compare. Each uses a different approach to decide who gets tickets.</p>
+
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" name="strategies[]" value="fcfs" checked>
+                    First-Come-First-Served
+                </label>
+                <label>
+                    <input type="checkbox" name="strategies[]" value="lottery" checked>
+                    Random Lottery
+                </label>
+                <label>
+                    <input type="checkbox" name="strategies[]" value="tiered" checked>
+                    Tiered Priority
+                </label>
+                <label>
+                    <input type="checkbox" name="strategies[]" value="access" checked>
+                    Access Maximizing
+                </label>
+            </div>
+        </div>
+
+        <!-- Submit -->
+        <div class="text-center">
+            <button type="submit" class="btn btn-primary" id="runBtn" style="padding: 14px 48px; font-size: 16px;">
+                Run Simulation
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+let sectionIndex = 3;
+
+function addSection() {
+    const container = document.getElementById('sectionsContainer');
+    const row = document.createElement('div');
+    row.className = 'section-row grid-3 mb-8';
+    row.dataset.index = sectionIndex;
+    row.innerHTML = `
+        <div class="form-group">
+            <label>Section Name</label>
+            <input type="text" name="section_name[]" placeholder="e.g. VIP Box">
+        </div>
+        <div class="form-group">
+            <label>Capacity</label>
+            <input type="number" name="section_capacity[]" value="500" min="1">
+        </div>
+        <div class="form-group">
+            <label>Price ($)</label>
+            <input type="number" name="section_price[]" value="100" min="1" step="0.01">
+        </div>
+    `;
+    container.appendChild(row);
+    sectionIndex++;
+}
+
+document.getElementById('allocationForm').addEventListener('submit', function() {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Running...';
+});
+</script>
+{% endblock %}

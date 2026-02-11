@@ -26,6 +26,7 @@ class TicketRequest:
 
     account_id: str
     qty_requested: int
+    request_id: str = ""
     section_preferences: list[str] = field(default_factory=list)
     wtp: float = 0.0           # diagnostic only — does NOT drive allocation
     loyalty_score: float = 0.0

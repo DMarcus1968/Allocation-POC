@@ -2,18 +2,22 @@
 
 DB file: <repo_root>/.data/scenarios.sqlite
 Uses only the standard library ``sqlite3`` module.
+
+Supports both legacy flat ``knobs`` and the new categorized format
+(``knobs_promoter_constraints`` + ``knobs_allocation_policy``).
+When loading rows that only have flat ``knobs``, the split is
+performed automatically using the taxonomy in ``src.models.scenario``.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
 
-from src.models.scenario import Scenario
+from src.models.scenario import Scenario, split_knobs, merge_knobs
 
 _DB_DIR = Path(__file__).resolve().parents[2] / ".data"
 _DB_PATH = _DB_DIR / "scenarios.sqlite"
@@ -34,7 +38,7 @@ def _get_conn(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def init_db(db_path: Path | None = None) -> None:
-    """Create the scenarios table if it does not exist."""
+    """Create the scenarios table if it does not exist, and migrate."""
     conn = _get_conn(db_path)
     try:
         conn.execute("""
@@ -47,19 +51,50 @@ def init_db(db_path: Path | None = None) -> None:
                 updated_at    TEXT NOT NULL,
                 locked        INTEGER NOT NULL DEFAULT 0,
                 knobs         TEXT NOT NULL DEFAULT '{}',
+                knobs_promoter_constraints TEXT NOT NULL DEFAULT '{}',
+                knobs_allocation_policy    TEXT NOT NULL DEFAULT '{}',
                 seed_policy   TEXT NOT NULL DEFAULT '{}',
                 "references"  TEXT NOT NULL DEFAULT '{}',
                 checksum      TEXT NOT NULL DEFAULT ''
             )
         """)
         conn.commit()
+
+        # Migration: add new columns if they don't exist (for pre-existing DBs)
+        _migrate_add_knob_columns(conn)
     finally:
         conn.close()
+
+
+def _migrate_add_knob_columns(conn: sqlite3.Connection) -> None:
+    """Add knobs_promoter_constraints / knobs_allocation_policy if missing."""
+    cursor = conn.execute("PRAGMA table_info(scenarios)")
+    existing_cols = {row["name"] for row in cursor.fetchall()}
+
+    if "knobs_promoter_constraints" not in existing_cols:
+        conn.execute(
+            "ALTER TABLE scenarios ADD COLUMN knobs_promoter_constraints "
+            "TEXT NOT NULL DEFAULT '{}'"
+        )
+    if "knobs_allocation_policy" not in existing_cols:
+        conn.execute(
+            "ALTER TABLE scenarios ADD COLUMN knobs_allocation_policy "
+            "TEXT NOT NULL DEFAULT '{}'"
+        )
+    conn.commit()
 
 
 # ── helpers ─────────────────────────────────────────────────────────
 
 def _row_to_scenario(row: sqlite3.Row) -> Scenario:
+    knobs_raw = json.loads(row["knobs"])
+    pc_raw = json.loads(row["knobs_promoter_constraints"])
+    ap_raw = json.loads(row["knobs_allocation_policy"])
+
+    # Migration: if sub-dicts are empty but flat knobs exists, auto-split
+    if not pc_raw and not ap_raw and knobs_raw:
+        pc_raw, ap_raw = split_knobs(knobs_raw)
+
     return Scenario(
         id=row["id"],
         name=row["name"],
@@ -68,7 +103,9 @@ def _row_to_scenario(row: sqlite3.Row) -> Scenario:
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
         locked=bool(row["locked"]),
-        knobs=json.loads(row["knobs"]),
+        knobs=knobs_raw,
+        knobs_promoter_constraints=pc_raw,
+        knobs_allocation_policy=ap_raw,
         seed_policy=json.loads(row["seed_policy"]),
         references=json.loads(row["references"]),
         checksum=row["checksum"],
@@ -77,6 +114,26 @@ def _row_to_scenario(row: sqlite3.Row) -> Scenario:
 
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
+
+
+def _resolve_knobs(payload: dict) -> tuple[dict, dict, dict]:
+    """Accept either legacy ``knobs`` or categorized sub-dicts.
+
+    Returns (flat_knobs, promoter_constraints, allocation_policy).
+    """
+    pc = payload.get("knobs_promoter_constraints", {})
+    ap = payload.get("knobs_allocation_policy", {})
+
+    if pc or ap:
+        # Categorized format is authoritative
+        flat = merge_knobs(pc, ap)
+    elif "knobs" in payload:
+        flat = payload["knobs"]
+        pc, ap = split_knobs(flat)
+    else:
+        flat, pc, ap = {}, {}, {}
+
+    return flat, pc, ap
 
 
 # ── public API ──────────────────────────────────────────────────────
@@ -106,10 +163,12 @@ def get_scenario(scenario_id: str, db_path: Path | None = None) -> Scenario | No
 def create_scenario(payload: dict, db_path: Path | None = None) -> Scenario:
     """Create a new scenario from a payload dict.
 
-    Required: ``name``.  Optional: description, created_by, knobs,
-    seed_policy, references.
+    Accepts either ``knobs`` (legacy) or
+    ``knobs_promoter_constraints`` + ``knobs_allocation_policy``.
     """
     now = _now_iso()
+    flat, pc, ap = _resolve_knobs(payload)
+
     scenario = Scenario(
         id=str(uuid.uuid4()),
         name=payload.get("name", "Untitled"),
@@ -118,7 +177,9 @@ def create_scenario(payload: dict, db_path: Path | None = None) -> Scenario:
         created_at=datetime.fromisoformat(now),
         updated_at=datetime.fromisoformat(now),
         locked=False,
-        knobs=payload.get("knobs", {}),
+        knobs=flat,
+        knobs_promoter_constraints=pc,
+        knobs_allocation_policy=ap,
         seed_policy=payload.get("seed_policy", {"mode": "common", "seed": 42}),
         references=payload.get("references", {
             "event_ref": "demo_event",
@@ -133,8 +194,9 @@ def create_scenario(payload: dict, db_path: Path | None = None) -> Scenario:
         conn.execute(
             """INSERT INTO scenarios
                (id, name, description, created_by, created_at, updated_at,
-                locked, knobs, seed_policy, "references", checksum)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                locked, knobs, knobs_promoter_constraints,
+                knobs_allocation_policy, seed_policy, "references", checksum)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 scenario.id,
                 scenario.name,
@@ -144,6 +206,8 @@ def create_scenario(payload: dict, db_path: Path | None = None) -> Scenario:
                 scenario.updated_at.isoformat(),
                 int(scenario.locked),
                 json.dumps(scenario.knobs, sort_keys=True),
+                json.dumps(scenario.knobs_promoter_constraints, sort_keys=True),
+                json.dumps(scenario.knobs_allocation_policy, sort_keys=True),
                 json.dumps(scenario.seed_policy, sort_keys=True),
                 json.dumps(scenario.references, sort_keys=True),
                 scenario.checksum,
@@ -166,26 +230,42 @@ def update_scenario(
     if existing is None:
         raise ValueError(f"Scenario {scenario_id} not found")
     if existing.locked:
-        raise ScenarioLocked(f"Scenario {scenario_id} is locked and cannot be updated")
+        raise ScenarioLocked(
+            f"Scenario {scenario_id} is locked and cannot be updated"
+        )
 
     now = _now_iso()
-    updated_name = payload.get("name", existing.name)
-    updated_desc = payload.get("description", existing.description)
-    updated_knobs = payload.get("knobs", existing.knobs)
-    updated_seed = payload.get("seed_policy", existing.seed_policy)
-    updated_refs = payload.get("references", existing.references)
+
+    # Resolve knobs: prefer sub-dicts from payload, fall back to flat, then existing
+    if "knobs_promoter_constraints" in payload or "knobs_allocation_policy" in payload:
+        pc = payload.get(
+            "knobs_promoter_constraints", existing.knobs_promoter_constraints
+        )
+        ap = payload.get(
+            "knobs_allocation_policy", existing.knobs_allocation_policy
+        )
+        flat = merge_knobs(pc, ap)
+    elif "knobs" in payload:
+        flat = payload["knobs"]
+        pc, ap = split_knobs(flat)
+    else:
+        flat = existing.knobs
+        pc = existing.knobs_promoter_constraints
+        ap = existing.knobs_allocation_policy
 
     scenario = Scenario(
         id=existing.id,
-        name=updated_name,
-        description=updated_desc,
+        name=payload.get("name", existing.name),
+        description=payload.get("description", existing.description),
         created_by=existing.created_by,
         created_at=existing.created_at,
         updated_at=datetime.fromisoformat(now),
         locked=existing.locked,
-        knobs=updated_knobs,
-        seed_policy=updated_seed,
-        references=updated_refs,
+        knobs=flat,
+        knobs_promoter_constraints=pc,
+        knobs_allocation_policy=ap,
+        seed_policy=payload.get("seed_policy", existing.seed_policy),
+        references=payload.get("references", existing.references),
     )
     scenario.update_checksum()
 
@@ -194,13 +274,17 @@ def update_scenario(
         conn.execute(
             """UPDATE scenarios
                SET name = ?, description = ?, updated_at = ?,
-                   knobs = ?, seed_policy = ?, "references" = ?, checksum = ?
+                   knobs = ?, knobs_promoter_constraints = ?,
+                   knobs_allocation_policy = ?,
+                   seed_policy = ?, "references" = ?, checksum = ?
                WHERE id = ?""",
             (
                 scenario.name,
                 scenario.description,
                 scenario.updated_at.isoformat(),
                 json.dumps(scenario.knobs, sort_keys=True),
+                json.dumps(scenario.knobs_promoter_constraints, sort_keys=True),
+                json.dumps(scenario.knobs_allocation_policy, sort_keys=True),
                 json.dumps(scenario.seed_policy, sort_keys=True),
                 json.dumps(scenario.references, sort_keys=True),
                 scenario.checksum,
@@ -228,7 +312,8 @@ def clone_scenario(
             "name": f"{existing.name} (clone)",
             "description": existing.description,
             "created_by": existing.created_by,
-            "knobs": dict(existing.knobs),
+            "knobs_promoter_constraints": dict(existing.knobs_promoter_constraints),
+            "knobs_allocation_policy": dict(existing.knobs_allocation_policy),
             "seed_policy": dict(existing.seed_policy),
             "references": dict(existing.references),
         },

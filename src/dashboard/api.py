@@ -1,7 +1,8 @@
 """Phase 2B — Flask API for the tradeoff dashboard.
 
-Endpoints expose scenario CRUD, preview runs, and multi-scenario
-comparison.  All wording avoids "optimize/recommend/best/fair".
+Endpoints expose scenario CRUD, preview runs, multi-scenario
+comparison, and CSV export.  All wording avoids
+"optimize/recommend/best/fair".
 
 Pricing control remains promoter-side; these endpoints deal only
 with allocation knobs and read-only pricebook references.
@@ -9,7 +10,10 @@ with allocation knobs and read-only pricebook references.
 
 from __future__ import annotations
 
-from flask import Flask, jsonify, request
+import csv
+import io
+
+from flask import Flask, Response, jsonify, request
 
 from src.dashboard import scenario_store
 from src.dashboard.scenario_store import ScenarioLocked
@@ -118,7 +122,7 @@ def compare():
     """Compare 2–4 scenarios side by side.
 
     Body: { "scenario_ids": ["...", "..."], "use_common_seed": true, "seed": <optional> }
-    Returns: fcfs baseline, per-scenario batch metrics, pareto points,
+    Returns: manifest, fcfs_baseline, scenarios, pareto_points,
              deltas vs FCFS, explainability deltas.
     """
     body = request.get_json(force=True)
@@ -140,6 +144,76 @@ def compare():
         return jsonify({"error": str(exc)}), 404
 
     return jsonify(result)
+
+
+# ── CSV export ──────────────────────────────────────────────────────
+
+@app.route("/export/compare.csv", methods=["POST"])
+def export_compare_csv():
+    """Export compare results as a CSV.
+
+    Body: same as /compare.
+    Returns: text/csv with one row per scenario.
+    """
+    body = request.get_json(force=True)
+    scenario_ids = body.get("scenario_ids", [])
+
+    if not (2 <= len(scenario_ids) <= 4):
+        return jsonify({"error": "Provide 2–4 scenario_ids"}), 400
+
+    use_common_seed = body.get("use_common_seed", True)
+    seed = body.get("seed")
+
+    try:
+        result = run_compare(
+            scenario_ids,
+            seed=seed,
+            use_common_seed=use_common_seed,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    fcfs_m = result["fcfs_baseline"]["metrics"]
+
+    columns = [
+        "scenario_id",
+        "scenario_name",
+        "accounts_fulfilled_pct",
+        "tickets_fulfilled",
+        "unsold_inventory_count",
+        "gross_revenue_fixed_pricebook",
+        "delta_revenue_vs_fcfs",
+        "delta_unsold_vs_fcfs",
+    ]
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=columns)
+    writer.writeheader()
+
+    for sm in result["scenario_metrics"]:
+        m = sm["metrics"]
+        writer.writerow({
+            "scenario_id": sm["scenario_id"],
+            "scenario_name": sm["scenario_name"],
+            "accounts_fulfilled_pct": m["accounts_fulfilled_pct"],
+            "tickets_fulfilled": m["tickets_fulfilled"],
+            "unsold_inventory_count": m["unsold_inventory_count"],
+            "gross_revenue_fixed_pricebook": m["gross_revenue_fixed_pricebook"],
+            "delta_revenue_vs_fcfs": round(
+                m["gross_revenue_fixed_pricebook"]
+                - fcfs_m["gross_revenue_fixed_pricebook"],
+                2,
+            ),
+            "delta_unsold_vs_fcfs": (
+                m["unsold_inventory_count"] - fcfs_m["unsold_inventory_count"]
+            ),
+        })
+
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=compare.csv"},
+    )
 
 
 # ── entrypoint ──────────────────────────────────────────────────────

@@ -48,39 +48,58 @@ scenario_names = {s.id: s.name or s.id for s in scenarios}
 with st.sidebar.expander("Create scenario"):
     new_name = st.text_input("Name", value="New scenario")
     new_desc = st.text_input("Description", value="")
-    new_knobs_raw = st.text_area(
-        "Knobs (JSON)",
-        value=json.dumps(
-            {
-                "per_account_cap": 4,
-                "group_size_cap": 6,
-                "holdback_pct": 0.0,
-                "priority_mode": "random",
-                "singles_avoidance": True,
-            },
-            indent=2,
-        ),
-    )
+
+    col_pc, col_ap = st.columns(2)
+    with col_pc:
+        st.caption("Constraints reflect promoter-set rules.")
+        new_pc_raw = st.text_area(
+            "Promoter constraints (JSON)",
+            value=json.dumps(
+                {
+                    "per_account_cap": 4,
+                    "group_size_cap": 6,
+                    "holdback_pct": 0.0,
+                },
+                indent=2,
+            ),
+            key="new_pc",
+        )
+    with col_ap:
+        st.caption("Policy controls how requests are processed within constraints.")
+        new_ap_raw = st.text_area(
+            "Allocation policy (JSON)",
+            value=json.dumps(
+                {
+                    "priority_mode": "random",
+                    "singles_avoidance": True,
+                },
+                indent=2,
+            ),
+            key="new_ap",
+        )
+
     new_seed = st.number_input("Seed", value=42, step=1)
     new_seed_mode = st.selectbox("Seed mode", ["common", "per_scenario"])
 
     if st.button("Create"):
         try:
-            knobs = json.loads(new_knobs_raw)
+            pc = json.loads(new_pc_raw)
+            ap = json.loads(new_ap_raw)
         except json.JSONDecodeError:
-            st.error("Invalid JSON for knobs")
-            knobs = None
+            st.error("Invalid JSON in knob editors")
+            pc, ap = None, None
 
-        if knobs is not None:
+        if pc is not None and ap is not None:
             sc = scenario_store.create_scenario(
                 {
                     "name": new_name,
                     "description": new_desc or None,
-                    "knobs": knobs,
+                    "knobs_promoter_constraints": pc,
+                    "knobs_allocation_policy": ap,
                     "seed_policy": {"mode": new_seed_mode, "seed": int(new_seed)},
                 }
             )
-            st.success(f"Created: {sc.name} ({sc.id[:8]}…)")
+            st.success(f"Created: {sc.name} ({sc.id[:8]}...)")
             st.rerun()
 
 # Per-scenario actions
@@ -97,7 +116,7 @@ if scenarios:
         if st.button("Clone"):
             try:
                 cloned = scenario_store.clone_scenario(selected_id)
-                st.sidebar.success(f"Cloned → {cloned.id[:8]}…")
+                st.sidebar.success(f"Cloned -> {cloned.id[:8]}...")
                 st.rerun()
             except ValueError as e:
                 st.sidebar.error(str(e))
@@ -116,9 +135,11 @@ if scenarios:
             st.rerun()
 
 
-# ── main area: scenario editor ──────────────────────────────────────
+# ── main area: tabs ─────────────────────────────────────────────────
 
 tabs = st.tabs(["Scenario Editor", "Preview", "Compare"])
+
+# ── scenario editor tab ─────────────────────────────────────────────
 
 with tabs[0]:
     st.subheader("Scenario Editor")
@@ -131,40 +152,58 @@ with tabs[0]:
         else:
             st.markdown(f"**ID:** `{sc.id}`")
             st.markdown(f"**Locked:** {sc.locked}")
-            st.markdown(f"**Checksum:** `{sc.checksum[:16]}…`")
+            st.markdown(f"**Checksum:** `{sc.checksum[:16]}...`")
 
             edit_name = st.text_input("Name", value=sc.name, key="edit_name")
             edit_desc = st.text_input(
                 "Description", value=sc.description or "", key="edit_desc"
             )
-            edit_knobs_raw = st.text_area(
-                "Knobs (JSON)",
-                value=json.dumps(sc.knobs, indent=2),
-                height=200,
-                key="edit_knobs",
-            )
+
+            col_epc, col_eap = st.columns(2)
+            with col_epc:
+                st.caption("Constraints reflect promoter-set rules.")
+                edit_pc_raw = st.text_area(
+                    "Promoter constraints (JSON)",
+                    value=json.dumps(sc.knobs_promoter_constraints, indent=2),
+                    height=180,
+                    key="edit_pc",
+                )
+            with col_eap:
+                st.caption(
+                    "Policy controls how requests are processed within constraints."
+                )
+                edit_ap_raw = st.text_area(
+                    "Allocation policy (JSON)",
+                    value=json.dumps(sc.knobs_allocation_policy, indent=2),
+                    height=180,
+                    key="edit_ap",
+                )
 
             if st.button("Save changes"):
                 if sc.locked:
                     st.error("This scenario is locked and cannot be updated.")
                 else:
                     try:
-                        knobs = json.loads(edit_knobs_raw)
+                        pc = json.loads(edit_pc_raw)
+                        ap = json.loads(edit_ap_raw)
                     except json.JSONDecodeError:
-                        st.error("Invalid JSON for knobs")
-                        knobs = None
+                        st.error("Invalid JSON in knob editors")
+                        pc, ap = None, None
 
-                    if knobs is not None:
+                    if pc is not None and ap is not None:
                         try:
                             updated = scenario_store.update_scenario(
                                 sc.id,
                                 {
                                     "name": edit_name,
                                     "description": edit_desc or None,
-                                    "knobs": knobs,
+                                    "knobs_promoter_constraints": pc,
+                                    "knobs_allocation_policy": ap,
                                 },
                             )
-                            st.success(f"Saved. Checksum: {updated.checksum[:16]}…")
+                            st.success(
+                                f"Saved. Checksum: {updated.checksum[:16]}..."
+                            )
                             st.rerun()
                         except ScenarioLocked:
                             st.error("Scenario is locked.")
@@ -192,7 +231,7 @@ with tabs[1]:
 
         if st.button("Run preview"):
             seed_val = int(seed_override) if seed_override != 0 else None
-            with st.spinner("Running allocation preview…"):
+            with st.spinner("Running allocation preview..."):
                 try:
                     result = run_preview(
                         preview_id,
@@ -224,8 +263,10 @@ with tabs[1]:
                 for note in expl.get("notes", []):
                     st.markdown(f"- {note}")
 
-                with st.expander("Raw bindings"):
+                with st.expander("Bindings (section-aware)"):
                     st.json(expl.get("bindings", {}))
+                with st.expander("Lost ticket estimates"):
+                    st.json(expl.get("lost_tickets_estimates", {}))
 
 # ── compare tab ─────────────────────────────────────────────────────
 
@@ -235,7 +276,7 @@ with tabs[2]:
         st.info("Create at least 2 scenarios to compare.")
     else:
         compare_ids = st.multiselect(
-            "Select 2–4 scenarios to compare",
+            "Select 2-4 scenarios to compare",
             options=[s.id for s in scenarios],
             format_func=lambda sid: scenario_names.get(sid, sid),
             max_selections=4,
@@ -256,7 +297,7 @@ with tabs[2]:
                 st.warning("Select at least 2 scenarios.")
             else:
                 seed_val = int(compare_seed) if compare_seed != 0 else None
-                with st.spinner("Running comparison…"):
+                with st.spinner("Running comparison..."):
                     try:
                         result = run_compare(
                             compare_ids,
@@ -272,7 +313,6 @@ with tabs[2]:
                     st.json(result["fcfs_baseline"])
 
                     st.markdown("### Scenario Metrics (Batch)")
-                    # Table view
                     table_data = []
                     for sm in result["scenario_metrics"]:
                         row = {"Scenario": sm["scenario_name"]}
@@ -298,18 +338,64 @@ with tabs[2]:
                         )
                     st.table(pareto_table)
 
-                    st.markdown("### Explainability")
+                    # "Why results changed" panel
+                    st.markdown("### Why Results Changed")
                     for ed in result.get("explainability_deltas", []):
-                        st.markdown(
-                            f"**vs scenario {ed['base_scenario_id'][:8]}…**"
+                        base_name = scenario_names.get(
+                            ed["base_scenario_id"],
+                            ed["base_scenario_id"][:8],
                         )
-                        for note in ed["delta"].get("notes", []):
+                        alt_name = scenario_names.get(
+                            ed["alt_scenario_id"],
+                            ed["alt_scenario_id"][:8],
+                        )
+                        st.markdown(f"**{alt_name} vs {base_name}:**")
+
+                        delta = ed["delta"]
+
+                        # Knob diffs
+                        if delta.get("knob_changes_promoter_constraints"):
+                            st.markdown("*Promoter constraint changes:*")
+                            for ch in delta["knob_changes_promoter_constraints"]:
+                                st.markdown(
+                                    f"- `{ch['knob']}`: "
+                                    f"{ch['base']} -> {ch['alt']}"
+                                )
+                        if delta.get("knob_changes_allocation_policy"):
+                            st.markdown("*Allocation policy changes:*")
+                            for ch in delta["knob_changes_allocation_policy"]:
+                                st.markdown(
+                                    f"- `{ch['knob']}`: "
+                                    f"{ch['base']} -> {ch['alt']}"
+                                )
+
+                        # Binding deltas
+                        if delta.get("binding_shifts"):
+                            st.markdown("*Binding shifts:*")
+                            for cname, shift in delta["binding_shifts"].items():
+                                st.markdown(
+                                    f"- {cname}: {shift['base']} -> "
+                                    f"{shift['alt']} ({shift['change']:+d})"
+                                )
+
+                        # Outcome deltas
+                        if delta.get("outcome_deltas"):
+                            st.markdown("*Outcome impact:*")
+                            od = delta["outcome_deltas"]
+                            for key, val in od.items():
+                                if val != 0:
+                                    st.markdown(f"- {key}: {val:+}")
+
+                        # Notes
+                        for note in delta.get("notes", []):
                             st.markdown(f"- {note}")
+
+                        st.markdown("---")
 
 # ── footer ──────────────────────────────────────────────────────────
 st.markdown("---")
 st.caption(
-    "Phase 2B Tradeoff Dashboard — allocation knobs only. "
+    "Phase 2B Tradeoff Dashboard -- allocation knobs only. "
     "Pricing control is promoter-side (read-only pricebook). "
     "Phase 3 (pricing guidance) is deferred."
 )

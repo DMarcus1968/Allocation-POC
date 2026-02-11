@@ -2,12 +2,15 @@
 
 All explanations are deterministic and based on concrete counts
 from the allocator debug output.  No ML attribution is used.
+
+Bindings are now section-aware, and delta explanations group knob
+changes by promoter constraints vs allocation policy.
 """
 
 from __future__ import annotations
 
 from src.models.allocation import AllocationResult
-from src.models.scenario import Scenario
+from src.models.scenario import Scenario, PROMOTER_CONSTRAINT_KEYS
 
 
 def explain_run(
@@ -16,27 +19,28 @@ def explain_run(
 ) -> dict:
     """Generate an explainability payload for a single preview run.
 
-    Examines the batch allocator's debug output for constraint-binding
-    indicators and produces human-readable bullet notes with counts.
+    Examines the batch allocator's section-aware debug output for
+    constraint-binding indicators and produces human-readable bullet
+    notes with concrete counts.
 
     Returns:
-        {"bindings": {...}, "notes": [...]}
+        {
+          "bindings": { constraint -> {total, by_section} },
+          "lost_tickets_estimates": { constraint -> {total, by_section} },
+          "notes": [str, ...]
+        }
     """
     debug = batch_result.debug or {}
-    bc = debug.get("binding_counts", {})
+    bindings = debug.get("bindings", {})
+    lost = debug.get("lost_tickets_estimates", {})
 
-    bindings = {
-        "per_account_cap_binds": bc.get("per_account_cap", 0),
-        "group_size_cap_binds": bc.get("group_size_cap", 0),
-        "section_eligibility_exclusions": bc.get("section_eligibility", 0),
-        "holdback_tickets": bc.get("holdback", 0),
-        "insufficient_inventory_rejections": bc.get("insufficient_inventory", 0),
-        "singles_stranded": bc.get("singles_stranded", 0),
+    notes = _build_notes(bindings, lost, scenario.knobs, debug)
+
+    return {
+        "bindings": bindings,
+        "lost_tickets_estimates": lost,
+        "notes": notes,
     }
-
-    notes = _build_notes(bindings, scenario.knobs, debug)
-
-    return {"bindings": bindings, "notes": notes}
 
 
 def explain_delta(
@@ -47,84 +51,112 @@ def explain_delta(
 ) -> dict:
     """Generate explainability for the difference between two scenarios.
 
-    Identifies which knobs changed and how binding indicators shifted.
+    Groups knob changes into promoter constraints vs allocation policy,
+    computes binding deltas (per constraint, totals + top 2 sections
+    by absolute delta), and outcome deltas.
 
     Returns:
-        {"knob_changes": [...], "binding_shifts": {...}, "notes": [...]}
+        {
+          "knob_changes_promoter_constraints": [...],
+          "knob_changes_allocation_policy": [...],
+          "knob_changes": [...],   (all, for backward compat)
+          "binding_shifts": {...},
+          "outcome_deltas": {...},
+          "notes": [str, ...]
+        }
     """
-    # Identify knob differences
-    knob_changes = _diff_knobs(base_scenario.knobs, alt_scenario.knobs)
+    # Identify knob differences, split by category
+    all_changes = _diff_knobs(base_scenario.knobs, alt_scenario.knobs)
+    pc_changes = [c for c in all_changes if c["knob"] in PROMOTER_CONSTRAINT_KEYS]
+    ap_changes = [c for c in all_changes if c["knob"] not in PROMOTER_CONSTRAINT_KEYS]
 
-    # Binding shifts
+    # Binding shifts (section-aware)
     base_bindings = base_preview.get("explainability", {}).get("bindings", {})
     alt_bindings = alt_preview.get("explainability", {}).get("bindings", {})
-    binding_shifts = {}
-    all_keys = set(base_bindings) | set(alt_bindings)
-    for key in sorted(all_keys):
-        bv = base_bindings.get(key, 0)
-        av = alt_bindings.get(key, 0)
-        if bv != av:
-            binding_shifts[key] = {"base": bv, "alt": av, "change": av - bv}
+    binding_shifts = _compute_binding_shifts(base_bindings, alt_bindings)
 
-    # Metric shifts
+    # Outcome deltas
     base_batch = base_preview.get("metrics", {}).get("batch", {})
     alt_batch = alt_preview.get("metrics", {}).get("batch", {})
+    outcome_deltas = {
+        "tickets_fulfilled": (
+            alt_batch.get("tickets_fulfilled", 0)
+            - base_batch.get("tickets_fulfilled", 0)
+        ),
+        "singles_stranded_count": (
+            alt_batch.get("singles_stranded_count", 0)
+            - base_batch.get("singles_stranded_count", 0)
+        ),
+        "unsold_inventory_count": (
+            alt_batch.get("unsold_inventory_count", 0)
+            - base_batch.get("unsold_inventory_count", 0)
+        ),
+        "gross_revenue_fixed_pricebook": round(
+            alt_batch.get("gross_revenue_fixed_pricebook", 0)
+            - base_batch.get("gross_revenue_fixed_pricebook", 0),
+            2,
+        ),
+        "accounts_fulfilled_pct": round(
+            alt_batch.get("accounts_fulfilled_pct", 0)
+            - base_batch.get("accounts_fulfilled_pct", 0),
+            2,
+        ),
+    }
 
     notes = _build_delta_notes(
-        knob_changes, binding_shifts, base_batch, alt_batch,
+        pc_changes, ap_changes, binding_shifts, outcome_deltas,
         base_scenario, alt_scenario,
     )
 
     return {
-        "knob_changes": knob_changes,
+        "knob_changes_promoter_constraints": pc_changes,
+        "knob_changes_allocation_policy": ap_changes,
+        "knob_changes": all_changes,
         "binding_shifts": binding_shifts,
+        "outcome_deltas": outcome_deltas,
         "notes": notes,
     }
 
 
 # ── internal helpers ────────────────────────────────────────────────
 
-def _build_notes(bindings: dict, knobs: dict, debug: dict) -> list[str]:
-    """Build human-readable bullet strings from binding data."""
+def _build_notes(
+    bindings: dict,
+    lost: dict,
+    knobs: dict,
+    debug: dict,
+) -> list[str]:
+    """Build human-readable bullet strings from section-aware binding data."""
     notes: list[str] = []
 
-    cap_binds = bindings.get("per_account_cap_binds", 0)
-    if cap_binds > 0:
-        cap_val = knobs.get("per_account_cap", "unknown")
-        notes.append(
-            f"Per-account cap ({cap_val}) was binding for {cap_binds} request(s)."
-        )
+    for constraint in sorted(bindings.keys()):
+        entry = bindings[constraint]
+        total = entry.get("total", 0) if isinstance(entry, dict) else entry
+        if total <= 0:
+            continue
 
-    gs_binds = bindings.get("group_size_cap_binds", 0)
-    if gs_binds > 0:
-        gs_val = knobs.get("group_size_cap", "unknown")
-        notes.append(
-            f"Group size cap ({gs_val}) was binding for {gs_binds} request(s)."
-        )
+        by_section = entry.get("by_section", {}) if isinstance(entry, dict) else {}
+        lost_entry = lost.get(constraint, {})
+        lost_total = lost_entry.get("total", 0) if isinstance(lost_entry, dict) else 0
 
-    elig = bindings.get("section_eligibility_exclusions", 0)
-    if elig > 0:
-        notes.append(
-            f"Section eligibility constraints excluded {elig} section attempt(s)."
-        )
+        section_detail = ""
+        if by_section:
+            top_sections = sorted(
+                by_section.items(), key=lambda x: -x[1]
+            )[:3]
+            parts = [f"{sid}: {cnt}" for sid, cnt in top_sections]
+            section_detail = f" [by section: {', '.join(parts)}]"
 
-    holdback = bindings.get("holdback_tickets", 0)
-    if holdback > 0:
-        pct = debug.get("holdback_pct", 0)
-        notes.append(
-            f"Holdback ({pct:.0%}) withheld {holdback} ticket(s) from allocation."
-        )
+        lost_detail = ""
+        if lost_total > 0:
+            lost_detail = f" (~{lost_total} ticket(s) lost)"
 
-    insuff = bindings.get("insufficient_inventory_rejections", 0)
-    if insuff > 0:
-        notes.append(
-            f"{insuff} request(s) could not be fulfilled due to insufficient inventory."
-        )
+        label = constraint.replace("_", " ")
+        knob_val = knobs.get(constraint)
+        val_str = f" ({knob_val})" if knob_val is not None else ""
 
-    stranded = bindings.get("singles_stranded", 0)
-    if stranded > 0:
         notes.append(
-            f"{stranded} section(s) left with exactly 1 unsold seat (stranded single)."
+            f"{label.capitalize()}{val_str}: {total} binding(s){lost_detail}{section_detail}."
         )
 
     if not notes:
@@ -145,54 +177,123 @@ def _diff_knobs(base: dict, alt: dict) -> list[dict]:
     return changes
 
 
+def _compute_binding_shifts(
+    base_bindings: dict,
+    alt_bindings: dict,
+) -> dict:
+    """Compute per-constraint binding shifts with top sections."""
+    shifts: dict = {}
+    all_constraints = sorted(set(base_bindings) | set(alt_bindings))
+
+    for constraint in all_constraints:
+        b_entry = base_bindings.get(constraint, {"total": 0, "by_section": {}})
+        a_entry = alt_bindings.get(constraint, {"total": 0, "by_section": {}})
+
+        b_total = b_entry.get("total", 0) if isinstance(b_entry, dict) else b_entry
+        a_total = a_entry.get("total", 0) if isinstance(a_entry, dict) else a_entry
+
+        if b_total == a_total:
+            continue
+
+        b_by_sec = b_entry.get("by_section", {}) if isinstance(b_entry, dict) else {}
+        a_by_sec = a_entry.get("by_section", {}) if isinstance(a_entry, dict) else {}
+
+        # Section-level deltas
+        all_secs = sorted(set(b_by_sec) | set(a_by_sec))
+        section_deltas = {}
+        for sid in all_secs:
+            d = a_by_sec.get(sid, 0) - b_by_sec.get(sid, 0)
+            if d != 0:
+                section_deltas[sid] = d
+
+        # Top 2 sections by absolute delta
+        top_sections = sorted(
+            section_deltas.items(), key=lambda x: -abs(x[1])
+        )[:2]
+
+        shifts[constraint] = {
+            "base": b_total,
+            "alt": a_total,
+            "change": a_total - b_total,
+            "top_sections": dict(top_sections),
+        }
+
+    return shifts
+
+
 def _build_delta_notes(
-    knob_changes: list[dict],
+    pc_changes: list[dict],
+    ap_changes: list[dict],
     binding_shifts: dict,
-    base_batch: dict,
-    alt_batch: dict,
+    outcome_deltas: dict,
     base_scenario: Scenario,
     alt_scenario: Scenario,
 ) -> list[str]:
     """Build human-readable notes for a scenario comparison."""
     notes: list[str] = []
 
-    if not knob_changes:
+    # Knob changes by category
+    if pc_changes:
+        notes.append("Promoter constraint changes:")
+        for ch in pc_changes:
+            notes.append(
+                f"  '{ch['knob']}' changed from {ch['base']} to {ch['alt']}."
+            )
+    if ap_changes:
+        notes.append("Allocation policy changes:")
+        for ch in ap_changes:
+            notes.append(
+                f"  '{ch['knob']}' changed from {ch['base']} to {ch['alt']}."
+            )
+    if not pc_changes and not ap_changes:
         notes.append(
             f"Scenarios '{base_scenario.name}' and '{alt_scenario.name}' "
             "have identical knob settings."
         )
-    else:
-        for ch in knob_changes:
-            notes.append(
-                f"Knob '{ch['knob']}' changed from {ch['base']} to {ch['alt']}."
-            )
 
-    for key, shift in binding_shifts.items():
+    # Binding shifts
+    for constraint, shift in sorted(binding_shifts.items()):
         direction = "increased" if shift["change"] > 0 else "decreased"
+        section_info = ""
+        if shift["top_sections"]:
+            parts = [f"{s}: {d:+d}" for s, d in shift["top_sections"].items()]
+            section_info = f" (top sections: {', '.join(parts)})"
         notes.append(
-            f"{key} {direction} by {abs(shift['change'])} "
-            f"(from {shift['base']} to {shift['alt']})."
+            f"{constraint.replace('_', ' ').capitalize()} {direction} "
+            f"by {abs(shift['change'])} "
+            f"(from {shift['base']} to {shift['alt']}){section_info}."
         )
 
-    # Revenue shift
-    base_rev = base_batch.get("gross_revenue_fixed_pricebook", 0)
-    alt_rev = alt_batch.get("gross_revenue_fixed_pricebook", 0)
-    rev_delta = alt_rev - base_rev
-    if rev_delta != 0:
-        direction = "higher" if rev_delta > 0 else "lower"
+    # Outcome deltas
+    rev_d = outcome_deltas.get("gross_revenue_fixed_pricebook", 0)
+    if rev_d != 0:
+        direction = "higher" if rev_d > 0 else "lower"
         notes.append(
-            f"Gross revenue (fixed pricebook) is ${abs(rev_delta):,.2f} {direction} "
+            f"Gross revenue (fixed pricebook) is ${abs(rev_d):,.2f} {direction} "
             f"in '{alt_scenario.name}' vs '{base_scenario.name}'."
         )
 
-    # Access shift
-    base_access = base_batch.get("accounts_fulfilled_pct", 0)
-    alt_access = alt_batch.get("accounts_fulfilled_pct", 0)
-    access_delta = alt_access - base_access
-    if access_delta != 0:
-        direction = "higher" if access_delta > 0 else "lower"
+    access_d = outcome_deltas.get("accounts_fulfilled_pct", 0)
+    if access_d != 0:
+        direction = "higher" if access_d > 0 else "lower"
         notes.append(
-            f"Accounts fulfilled is {abs(access_delta):.2f}pp {direction} "
+            f"Accounts fulfilled is {abs(access_d):.2f}pp {direction} "
+            f"in '{alt_scenario.name}' vs '{base_scenario.name}'."
+        )
+
+    tickets_d = outcome_deltas.get("tickets_fulfilled", 0)
+    if tickets_d != 0:
+        direction = "more" if tickets_d > 0 else "fewer"
+        notes.append(
+            f"{abs(tickets_d)} {direction} ticket(s) fulfilled "
+            f"in '{alt_scenario.name}' vs '{base_scenario.name}'."
+        )
+
+    unsold_d = outcome_deltas.get("unsold_inventory_count", 0)
+    if unsold_d != 0:
+        direction = "more" if unsold_d > 0 else "fewer"
+        notes.append(
+            f"{abs(unsold_d)} {direction} unsold seat(s) "
             f"in '{alt_scenario.name}' vs '{base_scenario.name}'."
         )
 

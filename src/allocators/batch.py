@@ -6,6 +6,10 @@ knobs (per_account_cap, group_size_cap, holdback, priority ordering, etc.).
 
 Knobs control allocation behaviour; pricing remains promoter-side and
 is never modified here.
+
+The ``debug`` dict in the returned ``AllocationResult`` provides
+section-aware binding counts and lost-ticket estimates for each
+constraint, supporting the explainability layer.
 """
 
 from __future__ import annotations
@@ -47,7 +51,8 @@ def allocate_batch(
         rng: Seeded RNG for deterministic shuffling.
 
     Returns:
-        AllocationResult including a ``debug`` dict with binding counts.
+        AllocationResult including a ``debug`` dict with section-aware
+        binding counts and lost-ticket estimates.
     """
     if rng is None:
         rng = random.Random(42)
@@ -62,6 +67,8 @@ def allocate_batch(
     priority_mode: str = k["priority_mode"]
     singles_avoidance: bool = k["singles_avoidance"]
     section_eligibility: dict[str, bool] | None = k.get("section_eligibility")
+
+    section_ids = sorted(s.section_id for s in event.sections)
 
     # Effective inventory after holdback
     inventory: dict[str, int] = {}
@@ -78,13 +85,9 @@ def allocate_batch(
     rejections: list[Rejection] = []
     per_account: dict[str, int] = {}
 
-    binding_counts: dict[str, int] = {
-        "per_account_cap": 0,
-        "group_size_cap": 0,
-        "section_eligibility": 0,
-        "holdback": sum(holdback_applied.values()),
-        "insufficient_inventory": 0,
-    }
+    # Section-aware binding counters
+    bindings = _empty_binding_map()
+    lost = _empty_binding_map()
     rejection_summaries: list[dict] = []
 
     for req in sorted_requests:
@@ -92,7 +95,14 @@ def allocate_batch(
         remaining_cap = per_account_cap - acct_used
 
         if remaining_cap <= 0:
-            binding_counts["per_account_cap"] += 1
+            # Attribute to first preferred section for section-level tracking
+            attributed_section = (
+                req.section_preferences[0]
+                if req.section_preferences
+                else section_ids[0]
+            )
+            _incr(bindings, "per_account_cap", attributed_section)
+            _incr(lost, "per_account_cap", attributed_section, req.qty_requested)
             rejections.append(
                 Rejection(
                     account_id=req.account_id,
@@ -109,13 +119,12 @@ def allocate_batch(
             continue
 
         qty = min(req.qty_requested, remaining_cap, group_size_cap)
-        if req.qty_requested > group_size_cap:
-            binding_counts["group_size_cap"] += 1
 
         allocated = False
         for section_id in req.section_preferences:
             if section_eligibility and not section_eligibility.get(section_id, True):
-                binding_counts["section_eligibility"] += 1
+                _incr(bindings, "section_eligibility", section_id)
+                _incr(lost, "section_eligibility", section_id, qty)
                 continue
 
             avail = inventory.get(section_id, 0)
@@ -126,6 +135,15 @@ def allocate_batch(
             effective_qty = qty
             if singles_avoidance and avail - qty == 1 and qty > 1:
                 effective_qty = qty - 1
+
+            # Track group_size_cap binding at the allocated section
+            if req.qty_requested > group_size_cap:
+                _incr(bindings, "group_size_cap", section_id)
+                tickets_lost_to_cap = req.qty_requested - min(
+                    req.qty_requested, remaining_cap, group_size_cap
+                )
+                if tickets_lost_to_cap > 0:
+                    _incr(lost, "group_size_cap", section_id, tickets_lost_to_cap)
 
             inventory[section_id] -= effective_qty
             per_account[req.account_id] = acct_used + effective_qty
@@ -140,7 +158,13 @@ def allocate_batch(
             break
 
         if not allocated:
-            binding_counts["insufficient_inventory"] += 1
+            attributed_section = (
+                req.section_preferences[0]
+                if req.section_preferences
+                else section_ids[0]
+            )
+            _incr(bindings, "insufficient_inventory", attributed_section)
+            _incr(lost, "insufficient_inventory", attributed_section, req.qty_requested)
             rejections.append(
                 Rejection(
                     account_id=req.account_id,
@@ -154,14 +178,26 @@ def allocate_batch(
                 "qty_requested": req.qty_requested,
             })
 
+    # Holdback bindings: tracked as tickets withheld per section
+    for sid in section_ids:
+        hb = holdback_applied.get(sid, 0)
+        if hb > 0:
+            bindings["holdback"]["total"] += 1
+            bindings["holdback"]["by_section"][sid] = 1
+            lost["holdback"]["total"] += hb
+            lost["holdback"]["by_section"][sid] = hb
+
     # Count sections with exactly 1 remaining seat
     singles_stranded = sum(1 for v in inventory.values() if v == 1)
-    binding_counts["singles_stranded"] = singles_stranded
 
     debug = {
-        "binding_counts": binding_counts,
+        "bindings": bindings,
+        "lost_tickets_estimates": lost,
+        "singles_stranded": singles_stranded,
         "rejections": rejection_summaries[:50],
-        "effective_inventory_before": {s.section_id: s.capacity for s in event.sections},
+        "effective_inventory_before": {
+            s.section_id: s.capacity for s in event.sections
+        },
         "holdback_applied": holdback_applied,
         "holdback_pct": holdback_pct,
         "priority_mode": priority_mode,
@@ -172,6 +208,33 @@ def allocate_batch(
         allocations=allocations,
         rejections=rejections,
         debug=debug,
+    )
+
+
+# ── internal helpers ────────────────────────────────────────────────
+
+def _empty_binding_map() -> dict:
+    """Create an empty section-aware binding structure."""
+    return {
+        "per_account_cap": {"total": 0, "by_section": {}},
+        "group_size_cap": {"total": 0, "by_section": {}},
+        "section_eligibility": {"total": 0, "by_section": {}},
+        "holdback": {"total": 0, "by_section": {}},
+        "insufficient_inventory": {"total": 0, "by_section": {}},
+    }
+
+
+def _incr(
+    mapping: dict,
+    constraint: str,
+    section_id: str,
+    amount: int = 1,
+) -> None:
+    """Increment a section-aware binding counter."""
+    entry = mapping[constraint]
+    entry["total"] += amount
+    entry["by_section"][section_id] = (
+        entry["by_section"].get(section_id, 0) + amount
     )
 
 

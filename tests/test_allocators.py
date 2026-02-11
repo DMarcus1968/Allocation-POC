@@ -105,8 +105,36 @@ class TestBatch:
         requests = _make_requests(3)
         rng = random.Random(42)
         result = allocate_batch(event, requests, rng=rng)
-        assert "binding_counts" in result.debug
+        assert "bindings" in result.debug
+        assert "lost_tickets_estimates" in result.debug
         assert "remaining_inventory" in result.debug
+
+        # Verify section-aware binding structure
+        bindings = result.debug["bindings"]
+        for constraint in ("per_account_cap", "group_size_cap", "holdback",
+                           "section_eligibility", "insufficient_inventory"):
+            assert constraint in bindings
+            assert "total" in bindings[constraint]
+            assert "by_section" in bindings[constraint]
+
+    def test_section_aware_lost_tickets(self):
+        event = _make_event()
+        # One account requests many tickets — triggers per_account_cap
+        requests = [
+            TicketRequest(
+                account_id="acct_0",
+                qty_requested=2,
+                section_preferences=["sec_a", "sec_b"],
+                arrival_order=i,
+            )
+            for i in range(5)
+        ]
+        rng = random.Random(42)
+        result = allocate_batch(event, requests, knobs={"per_account_cap": 4}, rng=rng)
+        lost = result.debug["lost_tickets_estimates"]
+        assert "per_account_cap" in lost
+        # Some tickets should be lost to cap since 5×2=10 > cap of 4
+        assert lost["per_account_cap"]["total"] > 0
 
     def test_determinism(self):
         event = _make_event()

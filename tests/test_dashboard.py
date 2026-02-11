@@ -198,3 +198,45 @@ class TestCompareAPI:
             content_type="application/json",
         )
         assert resp.status_code == 400
+
+
+class TestExportCSV:
+    def test_export_csv_success(self, client):
+        ids = []
+        for name in ("X", "Y"):
+            resp = client.post(
+                "/scenarios",
+                data=json.dumps({"name": name, "knobs": {"per_account_cap": 4}}),
+                content_type="application/json",
+            )
+            ids.append(resp.get_json()["id"])
+
+        resp = client.post(
+            "/export/compare.csv",
+            data=json.dumps({"scenario_ids": ids, "seed": 42}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.content_type == "text/csv; charset=utf-8"
+        body = resp.data.decode()
+        assert "scenario_id" in body
+        assert "accounts_fulfilled_pct" in body
+        assert "delta_revenue_vs_fcfs" in body
+        # Should have header + 2 data rows
+        lines = [l for l in body.strip().split("\n") if l.strip()]
+        assert len(lines) == 3
+
+    def test_export_csv_too_few_ids(self, client):
+        resp = client.post(
+            "/scenarios",
+            data=json.dumps({"name": "Solo"}),
+            content_type="application/json",
+        )
+        sid = resp.get_json()["id"]
+
+        resp = client.post(
+            "/export/compare.csv",
+            data=json.dumps({"scenario_ids": [sid]}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400

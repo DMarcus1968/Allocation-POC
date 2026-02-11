@@ -54,3 +54,11 @@ class TestDemandSim:
         section_ids = {"sec_a", "sec_b"}
         for req in requests:
             assert set(req.section_preferences) == section_ids
+
+    def test_request_id_assigned(self):
+        event = _make_event()
+        config = DemandConfig(num_accounts=5)
+        rng = random.Random(42)
+        requests = generate_demand(event, config, rng)
+        for i, req in enumerate(requests):
+            assert req.request_id == f"req_{i:06d}"

@@ -4,16 +4,22 @@ Provides ``run_preview`` which loads a scenario, generates demand,
 runs both FCFS and batch allocators with a single seeded RNG,
 and returns a normalized output with manifest, results, metrics,
 and explainability payload.
+
+``run_compare`` generates demand ONCE and feeds the identical request
+list into every scenario's allocators, guaranteeing identical demand
+draws across scenarios.
 """
 
 from __future__ import annotations
 
+import hashlib
 import random
 import uuid
 from datetime import datetime
 
 from src.models.scenario import Scenario
-from src.models.metrics import MetricsSummary
+from src.models.demand import TicketRequest
+from src.models.event import EventConfig
 from src.dashboard import scenario_store
 from src.dashboard.fixtures import load_demo_event, load_demand_config
 from src.simulation.demand_sim import generate_demand
@@ -25,7 +31,23 @@ from src.dashboard.explain import explain_run, explain_delta
 
 # ── version tracking ────────────────────────────────────────────────
 
-_ENGINE_VERSION = "2b.0"
+_ENGINE_VERSION = "2b.1"
+
+
+# ── demand fingerprinting ──────────────────────────────────────────
+
+def _demand_hash(requests: list[TicketRequest]) -> str:
+    """Stable SHA-256 fingerprint of the demand draw.
+
+    Hashes (request_id, account_id, qty_requested) tuples in order.
+    Returned in manifests so callers can verify demand identity.
+    """
+    parts = [
+        f"{r.request_id}:{r.account_id}:{r.qty_requested}"
+        for r in requests
+    ]
+    raw = "|".join(parts)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 # ── primary entry point ─────────────────────────────────────────────
@@ -79,12 +101,36 @@ def run_preview(
 
     # 5. Generate demand (stable iteration: sections sorted in demand_sim)
     requests = generate_demand(event, demand_cfg, rng)
+    # Sort for stable ordering
+    requests.sort(key=lambda r: r.request_id)
 
-    # 6. Run FCFS
+    # 6–8. Run allocators and build output
+    return _build_preview_output(
+        scenario=scenario,
+        scenario_id=scenario_id,
+        event=event,
+        requests=requests,
+        effective_seed=effective_seed,
+        rng=rng,
+    )
+
+
+def _build_preview_output(
+    *,
+    scenario: Scenario,
+    scenario_id: str,
+    event: EventConfig,
+    requests: list[TicketRequest],
+    effective_seed: int,
+    rng: random.Random,
+) -> dict:
+    """Build the full preview output dict for a scenario + request list."""
+
+    # Run FCFS
     fcfs_result = allocate_fcfs(event, requests)
 
-    # 7. Run batch allocator with scenario knobs
-    #    Create a child RNG so batch shuffle doesn't consume the same stream
+    # Run batch allocator with scenario knobs
+    #   Create a child RNG so batch shuffle doesn't consume the same stream
     batch_rng = random.Random(rng.randint(0, 2**31))
     batch_result = allocate_batch(
         event,
@@ -94,56 +140,73 @@ def run_preview(
         rng=batch_rng,
     )
 
-    # 8. Compute metrics
+    # Compute metrics
     fcfs_metrics = compute_metrics(event, fcfs_result)
     batch_metrics = compute_metrics(event, batch_result)
     delta = compute_delta(fcfs_metrics, batch_metrics)
 
-    # 9. Manifest
+    # Manifest
     run_id = str(uuid.uuid4())
     manifest = {
         "run_id": run_id,
         "scenario_id": scenario_id,
         "seed": effective_seed,
         "checksum": scenario.checksum,
+        "demand_hash": _demand_hash(requests),
         "timestamp": datetime.utcnow().isoformat(),
         "versions": {
             "engine": _ENGINE_VERSION,
         },
     }
 
-    # 10. Build raw results
+    # Raw results
     results = {
         "fcfs": {
             "allocations": [
-                {"account_id": a.account_id, "section_id": a.section_id, "qty": a.qty_allocated}
+                {
+                    "account_id": a.account_id,
+                    "section_id": a.section_id,
+                    "qty": a.qty_allocated,
+                }
                 for a in fcfs_result.allocations
             ],
             "rejections": [
-                {"account_id": r.account_id, "reason": r.reason, "qty": r.qty_requested}
+                {
+                    "account_id": r.account_id,
+                    "reason": r.reason,
+                    "qty": r.qty_requested,
+                }
                 for r in fcfs_result.rejections
             ],
         },
         "batch": {
             "allocations": [
-                {"account_id": a.account_id, "section_id": a.section_id, "qty": a.qty_allocated}
+                {
+                    "account_id": a.account_id,
+                    "section_id": a.section_id,
+                    "qty": a.qty_allocated,
+                }
                 for a in batch_result.allocations
             ],
             "rejections": [
-                {"account_id": r.account_id, "reason": r.reason, "qty": r.qty_requested}
+                {
+                    "account_id": r.account_id,
+                    "reason": r.reason,
+                    "qty": r.qty_requested,
+                }
                 for r in batch_result.rejections
             ],
         },
     }
 
-    # 11. Metrics payload
+    # Metrics payload
     metrics = {
         "fcfs": fcfs_metrics.to_dict(),
         "batch": batch_metrics.to_dict(),
         "delta_batch_vs_fcfs": delta,
     }
 
-    # 12. Explainability
+    # Explainability
     explainability = explain_run(batch_result, scenario)
 
     return {
@@ -163,49 +226,105 @@ def run_compare(
     use_common_seed: bool = True,
     db_path=None,
 ) -> dict:
-    """Compare 2–4 scenarios.
+    """Compare 2–4 scenarios with a SINGLE demand draw.
+
+    Demand is generated once with a single RNG seed, then the same
+    request list (identical order) is fed to each scenario's FCFS
+    and batch allocators.
 
     Returns a payload with:
+      - manifest
       - pinned FCFS baseline
-      - per-scenario batch metrics
-      - pareto points (x = accounts_fulfilled_pct, y = gross_revenue)
+      - per-scenario batch metrics + pareto points + explainability
       - deltas vs FCFS
       - explainability deltas vs the first scenario (base)
     """
     if not (2 <= len(scenario_ids) <= 4):
         raise ValueError("Compare requires 2–4 scenario IDs")
 
-    previews: list[dict] = []
+    # 1. Load all scenarios
     scenarios: list[Scenario] = []
     for sid in scenario_ids:
-        p = run_preview(sid, seed=seed, use_common_seed=use_common_seed, db_path=db_path)
-        previews.append(p)
         sc = scenario_store.get_scenario(sid, db_path=db_path)
-        scenarios.append(sc)  # type: ignore[arg-type]
+        if sc is None:
+            raise ValueError(f"Scenario {sid} not found")
+        scenarios.append(sc)
 
-    # FCFS baseline is pinned from the first preview (same seed → same FCFS)
-    fcfs_baseline = previews[0]["metrics"]["fcfs"]
+    # 2. Resolve seed from first scenario's policy (or explicit)
+    effective_seed = _resolve_seed(scenarios[0], seed, use_common_seed)
 
-    # Per-scenario batch metrics + pareto points
-    scenario_metrics: list[dict] = []
-    pareto_points: list[dict] = []
+    # 3. Load event + demand config ONCE
+    event = load_demo_event(
+        scenarios[0].references.get("event_ref", "demo_event")
+    )
+    demand_cfg = load_demand_config(
+        scenarios[0].references.get("demand_config_ref", "default")
+    )
+
+    # 4. Generate demand ONCE with a single RNG
+    rng = random.Random(effective_seed)
+    requests = generate_demand(event, demand_cfg, rng)
+    # Stable ordering by request_id
+    requests.sort(key=lambda r: r.request_id)
+
+    d_hash = _demand_hash(requests)
+
+    # 5. For each scenario, run FCFS + batch against the SAME requests
+    previews: list[dict] = []
+    for sc in scenarios:
+        # Each scenario gets a fresh child RNG (derived deterministically
+        # per-scenario by hashing the seed + scenario id)
+        sc_seed = int(
+            hashlib.sha256(
+                f"{effective_seed}:{sc.id}".encode()
+            ).hexdigest()[:8],
+            16,
+        )
+        sc_rng = random.Random(sc_seed)
+        preview = _build_preview_output(
+            scenario=sc,
+            scenario_id=sc.id,
+            event=event,
+            requests=requests,
+            effective_seed=effective_seed,
+            rng=sc_rng,
+        )
+        previews.append(preview)
+
+    # 6. Build compare manifest
+    manifest = {
+        "seed": effective_seed,
+        "demand_hash": d_hash,
+        "scenario_count": len(scenario_ids),
+        "timestamp": datetime.utcnow().isoformat(),
+        "versions": {"engine": _ENGINE_VERSION},
+    }
+
+    # FCFS baseline: pinned from the first preview
+    # (FCFS is deterministic on the same requests regardless of scenario knobs)
+    fcfs_baseline = {
+        "metrics": previews[0]["metrics"]["fcfs"],
+        "note": "FCFS baseline is pinned across all scenarios (identical demand draw).",
+    }
+
+    # Per-scenario batch metrics + pareto + explainability
+    scenario_entries: list[dict] = []
     deltas_vs_fcfs: list[dict] = []
-
-    for i, p in enumerate(previews):
+    for sc, p in zip(scenarios, previews):
         batch_m = p["metrics"]["batch"]
-        scenario_metrics.append({
-            "scenario_id": scenario_ids[i],
-            "scenario_name": scenarios[i].name,
+        scenario_entries.append({
+            "scenario_id": sc.id,
+            "scenario_name": sc.name,
+            "scenario": sc.to_dict(),
             "metrics": batch_m,
-        })
-        pareto_points.append({
-            "scenario_id": scenario_ids[i],
-            "scenario_name": scenarios[i].name,
-            "x_accounts_fulfilled_pct": batch_m["accounts_fulfilled_pct"],
-            "y_gross_revenue": batch_m["gross_revenue_fixed_pricebook"],
+            "pareto": {
+                "x_accounts_fulfilled_pct": batch_m["accounts_fulfilled_pct"],
+                "y_gross_revenue": batch_m["gross_revenue_fixed_pricebook"],
+            },
+            "explainability": p["explainability"],
         })
         deltas_vs_fcfs.append({
-            "scenario_id": scenario_ids[i],
+            "scenario_id": sc.id,
             "delta": p["metrics"]["delta_batch_vs_fcfs"],
         })
 
@@ -223,8 +342,31 @@ def run_compare(
             "delta": ed,
         })
 
+    # Pareto points (top level, for convenience)
+    pareto_points = [
+        {
+            "scenario_id": e["scenario_id"],
+            "scenario_name": e["scenario_name"],
+            "x_accounts_fulfilled_pct": e["pareto"]["x_accounts_fulfilled_pct"],
+            "y_gross_revenue": e["pareto"]["y_gross_revenue"],
+        }
+        for e in scenario_entries
+    ]
+
+    # Flat scenario_metrics list (backward compat)
+    scenario_metrics = [
+        {
+            "scenario_id": e["scenario_id"],
+            "scenario_name": e["scenario_name"],
+            "metrics": e["metrics"],
+        }
+        for e in scenario_entries
+    ]
+
     return {
+        "manifest": manifest,
         "fcfs_baseline": fcfs_baseline,
+        "scenarios": scenario_entries,
         "scenario_metrics": scenario_metrics,
         "pareto_points": pareto_points,
         "deltas_vs_fcfs": deltas_vs_fcfs,

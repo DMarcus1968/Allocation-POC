@@ -53,6 +53,7 @@ def generate_demand(
             TicketRequest(
                 account_id=f"acct_{i:06d}",
                 qty_requested=qty,
+                request_id=f"req_{i:06d}",
                 section_preferences=prefs,
                 wtp=round(wtp, 2),
                 loyalty_score=round(loyalty, 2),

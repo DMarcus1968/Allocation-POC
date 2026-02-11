@@ -33,6 +33,13 @@ from src.dashboard.audit_store import list_audits
 st.set_page_config(page_title="Allocation Tradeoff Dashboard", layout="wide")
 st.title("Allocation Tradeoff Dashboard")
 
+# Static disclaimer panel
+st.info(
+    "This dashboard previews allocation outcomes under promoter-set "
+    "constraints and policies. Pricing is not changed here and remains "
+    "promoter-controlled. No fan-facing guidance is generated in this phase."
+)
+
 # Ensure DB
 scenario_store.init_db()
 
@@ -230,7 +237,9 @@ with tabs[1]:
                 )
             with col_eap:
                 st.caption(
-                    "Policy controls how requests are processed within constraints."
+                    "Policy controls how requests are processed within constraints. "
+                    "If using priority_mode, the field uses a promoter-provided tier; "
+                    "it does not infer willingness to pay."
                 )
                 edit_ap_raw = st.text_area(
                     "Allocation policy (JSON)",

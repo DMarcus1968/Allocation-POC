@@ -13,6 +13,7 @@ draws across scenarios.
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import uuid
 from datetime import datetime
@@ -32,7 +33,27 @@ from src.dashboard.audit_store import append_audit
 
 # ── version tracking ────────────────────────────────────────────────
 
-_ENGINE_VERSION = "2b.1"
+_ENGINE_VERSION = "2b.2"
+_CODE_VERSION = "allocation-poc-2b"
+
+
+def _git_commit() -> str:
+    """Return short git commit hash, or 'unknown' if not in a repo."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _config_hash(obj) -> str:
+    """Stable SHA-256 prefix of a JSON-serializable object."""
+    raw = json.dumps(obj, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 # ── demand fingerprinting ──────────────────────────────────────────
@@ -110,6 +131,7 @@ def run_preview(
         scenario=scenario,
         scenario_id=scenario_id,
         event=event,
+        demand_cfg=demand_cfg,
         requests=requests,
         effective_seed=effective_seed,
         rng=rng,
@@ -126,6 +148,7 @@ def _build_preview_output(
     scenario: Scenario,
     scenario_id: str,
     event: EventConfig,
+    demand_cfg=None,
     requests: list[TicketRequest],
     effective_seed: int,
     rng: random.Random,
@@ -151,6 +174,29 @@ def _build_preview_output(
     batch_metrics = compute_metrics(event, batch_result)
     delta = compute_delta(fcfs_metrics, batch_metrics)
 
+    # Config hashes for reproducibility
+    event_obj = {
+        "event_id": event.event_id,
+        "sections": [
+            {"id": s.section_id, "capacity": s.capacity} for s in event.sections
+        ],
+        "constraints": event.constraints,
+    }
+    demand_obj = {}
+    if demand_cfg is not None:
+        demand_obj = {
+            "num_accounts": getattr(demand_cfg, "num_accounts", "default"),
+            "avg_qty": getattr(demand_cfg, "avg_qty", "default"),
+            "std_qty": getattr(demand_cfg, "std_qty", "default"),
+            "min_qty": getattr(demand_cfg, "min_qty", "default"),
+            "max_qty": getattr(demand_cfg, "max_qty", "default"),
+        }
+    config_hashes = {
+        "event_config_hash": _config_hash(event_obj),
+        "demand_config_hash": _config_hash(demand_obj),
+        "pricebook_hash": _config_hash(event.pricebook.prices),
+    }
+
     # Manifest
     run_id = str(uuid.uuid4())
     manifest = {
@@ -160,10 +206,24 @@ def _build_preview_output(
         "checksum": scenario.checksum,
         "demand_hash": _demand_hash(requests),
         "timestamp": datetime.utcnow().isoformat(),
+        "git_commit": _git_commit(),
+        "code_version": _CODE_VERSION,
+        "config_hashes": config_hashes,
         "versions": {
             "engine": _ENGINE_VERSION,
         },
     }
+
+    # Reproducibility warning for locked scenarios with changed configs
+    if scenario.locked and scenario.reference_hashes:
+        mismatches = {}
+        for key, locked_hash in scenario.reference_hashes.items():
+            current = config_hashes.get(key)
+            if current and current != locked_hash:
+                mismatches[key] = {"locked": locked_hash, "current": current}
+        if mismatches:
+            manifest["repro_warning"] = "References changed since lock"
+            manifest["repro_mismatches"] = mismatches
 
     # Raw results
     results = {
@@ -291,6 +351,7 @@ def run_compare(
             scenario=sc,
             scenario_id=sc.id,
             event=event,
+            demand_cfg=demand_cfg,
             requests=requests,
             effective_seed=effective_seed,
             rng=sc_rng,

@@ -11,6 +11,7 @@ performed automatically using the taxonomy in ``src.models.scenario``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -76,7 +77,7 @@ def init_db(db_path: Path | None = None) -> None:
 
 
 def _migrate_add_knob_columns(conn: sqlite3.Connection) -> None:
-    """Add knobs_promoter_constraints / knobs_allocation_policy if missing."""
+    """Add knobs_promoter_constraints / knobs_allocation_policy and freeze columns if missing."""
     cursor = conn.execute("PRAGMA table_info(scenarios)")
     existing_cols = {row["name"] for row in cursor.fetchall()}
 
@@ -88,6 +89,24 @@ def _migrate_add_knob_columns(conn: sqlite3.Connection) -> None:
     if "knobs_allocation_policy" not in existing_cols:
         conn.execute(
             "ALTER TABLE scenarios ADD COLUMN knobs_allocation_policy "
+            "TEXT NOT NULL DEFAULT '{}'"
+        )
+    if "frozen_references" not in existing_cols:
+        conn.execute(
+            "ALTER TABLE scenarios ADD COLUMN frozen_references "
+            "INTEGER NOT NULL DEFAULT 0"
+        )
+    if "frozen_at" not in existing_cols:
+        conn.execute(
+            "ALTER TABLE scenarios ADD COLUMN frozen_at TEXT"
+        )
+    if "frozen_by" not in existing_cols:
+        conn.execute(
+            "ALTER TABLE scenarios ADD COLUMN frozen_by TEXT"
+        )
+    if "reference_hashes" not in existing_cols:
+        conn.execute(
+            "ALTER TABLE scenarios ADD COLUMN reference_hashes "
             "TEXT NOT NULL DEFAULT '{}'"
         )
     conn.commit()
@@ -104,6 +123,19 @@ def _row_to_scenario(row: sqlite3.Row) -> Scenario:
     if not pc_raw and not ap_raw and knobs_raw:
         pc_raw, ap_raw = split_knobs(knobs_raw)
 
+    # Safely read freeze columns (may not exist in very old DBs)
+    frozen_refs = False
+    frozen_at_val = None
+    frozen_by_val = None
+    ref_hashes = {}
+    try:
+        frozen_refs = bool(row["frozen_references"])
+        frozen_at_val = row["frozen_at"]
+        frozen_by_val = row["frozen_by"]
+        ref_hashes = json.loads(row["reference_hashes"]) if row["reference_hashes"] else {}
+    except (IndexError, KeyError):
+        pass
+
     return Scenario(
         id=row["id"],
         name=row["name"],
@@ -118,6 +150,10 @@ def _row_to_scenario(row: sqlite3.Row) -> Scenario:
         seed_policy=json.loads(row["seed_policy"]),
         references=json.loads(row["references"]),
         checksum=row["checksum"],
+        frozen_references=frozen_refs,
+        frozen_at=frozen_at_val,
+        frozen_by=frozen_by_val,
+        reference_hashes=ref_hashes,
     )
 
 
@@ -204,8 +240,9 @@ def create_scenario(payload: dict, db_path: Path | None = None) -> Scenario:
             """INSERT INTO scenarios
                (id, name, description, created_by, created_at, updated_at,
                 locked, knobs, knobs_promoter_constraints,
-                knobs_allocation_policy, seed_policy, "references", checksum)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                knobs_allocation_policy, seed_policy, "references", checksum,
+                frozen_references, frozen_at, frozen_by, reference_hashes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 scenario.id,
                 scenario.name,
@@ -220,6 +257,10 @@ def create_scenario(payload: dict, db_path: Path | None = None) -> Scenario:
                 json.dumps(scenario.seed_policy, sort_keys=True),
                 json.dumps(scenario.references, sort_keys=True),
                 scenario.checksum,
+                0,
+                None,
+                None,
+                json.dumps({}, sort_keys=True),
             ),
         )
         conn.commit()
@@ -376,17 +417,37 @@ def lock_scenario(
     scenario_id: str,
     db_path: Path | None = None,
 ) -> Scenario:
-    """Lock a scenario, preventing further updates."""
+    """Lock a scenario, freezing knobs, references, and recording reference hashes.
+
+    After locking, updates to knobs or references are rejected.
+    Reference hashes are computed at lock time so that runs can
+    detect if underlying configs have changed.
+    """
     existing = get_scenario(scenario_id, db_path)
     if existing is None:
         raise ValueError(f"Scenario {scenario_id} not found")
 
     now = _now_iso()
+
+    # Compute reference hashes at lock time
+    from src.dashboard.fixtures import load_demo_event, load_demand_config
+    ref_hashes = _compute_reference_hashes(existing)
+
     conn = _get_conn(db_path)
     try:
         conn.execute(
-            "UPDATE scenarios SET locked = 1, updated_at = ? WHERE id = ?",
-            (now, scenario_id),
+            """UPDATE scenarios
+               SET locked = 1, updated_at = ?,
+                   frozen_references = 1, frozen_at = ?, frozen_by = ?,
+                   reference_hashes = ?
+               WHERE id = ?""",
+            (
+                now,
+                now,
+                existing.created_by,
+                json.dumps(ref_hashes, sort_keys=True),
+                scenario_id,
+            ),
         )
         conn.commit()
     finally:
@@ -402,11 +463,51 @@ def lock_scenario(
         payload={
             "locked_by": existing.created_by,
             "locked_at": now,
+            "reference_hashes": ref_hashes,
         },
         db_path=db_path,
     )
 
     return locked_sc  # type: ignore[return-value]
+
+
+def _compute_reference_hashes(scenario: Scenario) -> dict:
+    """Compute SHA-256 hashes of the configs referenced by a scenario."""
+    from src.dashboard.fixtures import load_demo_event, load_demand_config
+
+    event = load_demo_event(scenario.references.get("event_ref", "demo_event"))
+    demand_cfg = load_demand_config(
+        scenario.references.get("demand_config_ref", "default")
+    )
+
+    def _stable_hash(obj) -> str:
+        raw = json.dumps(obj, sort_keys=True, default=str, separators=(",", ":"))
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    # Event config: sections + constraints
+    event_obj = {
+        "event_id": event.event_id,
+        "sections": [
+            {"id": s.section_id, "capacity": s.capacity} for s in event.sections
+        ],
+        "constraints": event.constraints,
+    }
+    # Pricebook
+    pricebook_obj = event.pricebook.prices
+    # Demand config
+    demand_obj = {
+        "num_accounts": demand_cfg.num_accounts,
+        "avg_qty": demand_cfg.avg_qty,
+        "std_qty": demand_cfg.std_qty,
+        "min_qty": demand_cfg.min_qty,
+        "max_qty": demand_cfg.max_qty,
+    }
+
+    return {
+        "event_config_hash": _stable_hash(event_obj),
+        "demand_config_hash": _stable_hash(demand_obj),
+        "pricebook_hash": _stable_hash(pricebook_obj),
+    }
 
 
 def delete_scenario(

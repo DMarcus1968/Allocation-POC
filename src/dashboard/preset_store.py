@@ -53,7 +53,7 @@ _SYSTEM_PRESETS: list[dict] = [
         },
         "knobs_allocation_policy": {
             "singles_avoidance": False,
-            "priority_mode": "price_tier",
+            "priority_mode": "promoter_provided_tier",
         },
     },
     {

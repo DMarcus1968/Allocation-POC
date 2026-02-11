@@ -79,6 +79,12 @@ class Scenario:
     )
     checksum: str = ""
 
+    # Freeze metadata — populated when scenario is locked
+    frozen_references: bool = False
+    frozen_at: str | None = None
+    frozen_by: str | None = None
+    reference_hashes: dict = field(default_factory=dict)
+
     def __post_init__(self) -> None:
         """Ensure knobs, promoter_constraints, and allocation_policy stay in sync."""
         self._sync_knobs()
@@ -125,7 +131,7 @@ class Scenario:
         self.checksum = self.compute_checksum()
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id,
             "name": self.name,
             "description": self.description,
@@ -139,7 +145,12 @@ class Scenario:
             "seed_policy": self.seed_policy,
             "references": self.references,
             "checksum": self.checksum,
+            "frozen_references": self.frozen_references,
+            "frozen_at": self.frozen_at,
+            "frozen_by": self.frozen_by,
+            "reference_hashes": self.reference_hashes,
         }
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> Scenario:
@@ -164,4 +175,8 @@ class Scenario:
             seed_policy=d.get("seed_policy", {"mode": "common", "seed": 42}),
             references=d.get("references", {}),
             checksum=d.get("checksum", ""),
+            frozen_references=d.get("frozen_references", False),
+            frozen_at=d.get("frozen_at"),
+            frozen_by=d.get("frozen_by"),
+            reference_hashes=d.get("reference_hashes", {}),
         )

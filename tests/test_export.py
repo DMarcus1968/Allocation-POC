@@ -88,8 +88,9 @@ class TestScenarioExportCSV:
         assert "export" in events
 
         export_audit = next(a for a in audits if a["event"] == "export")
-        assert export_audit["payload"]["format"] == "csv"
-        assert export_audit["payload"]["rows"] > 0
+        details = export_audit["payload"]["details"]
+        assert details["format"] == "long_csv"
+        assert details["rows"] > 0
 
     def test_export_nonexistent_scenario(self, client):
         resp = client.post(
@@ -98,6 +99,79 @@ class TestScenarioExportCSV:
             content_type="application/json",
         )
         assert resp.status_code == 404
+
+
+class TestMetricsCsvExport:
+    def test_metrics_csv_wide_format(self, client):
+        sid = _create_scenario(client)
+        resp = client.post(
+            f"/scenarios/{sid}/export",
+            data=json.dumps({"mode": "metrics_csv", "include_explainability": True}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.content_type == "text/csv; charset=utf-8"
+
+        body = resp.data.decode()
+        lines = [l for l in body.strip().split("\n") if l.strip()]
+        # Wide format: header + 1 data row
+        assert len(lines) == 2
+
+        header = lines[0]
+        assert "scenario_id" in header
+        assert "git_commit" in header
+        assert "event_config_hash" in header
+        assert "demand_config_hash" in header
+        assert "pricebook_hash" in header
+        assert "tickets_fulfilled" in header
+        assert "explainability_notes" in header
+
+    def test_metrics_csv_deterministic_columns(self, client):
+        """Metric columns should be sorted alphabetically."""
+        sid = _create_scenario(client)
+        resp = client.post(
+            f"/scenarios/{sid}/export",
+            data=json.dumps({"mode": "metrics_csv", "include_explainability": False}),
+            content_type="application/json",
+        )
+        body = resp.data.decode()
+        header = body.strip().split("\n")[0].strip()
+        cols = [c.strip() for c in header.split(",")]
+        # Find the metric columns (after pricebook_hash)
+        ph_idx = cols.index("pricebook_hash")
+        metric_cols = cols[ph_idx + 1:]
+        assert metric_cols == sorted(metric_cols)
+
+    def test_metrics_csv_config_hashes_present(self, client):
+        sid = _create_scenario(client)
+        resp = client.post(
+            f"/scenarios/{sid}/export",
+            data=json.dumps({"mode": "metrics_csv"}),
+            content_type="application/json",
+        )
+        body = resp.data.decode()
+        data_line = body.strip().split("\n")[1]
+        # Config hash columns should have non-empty values
+        header = body.strip().split("\n")[0].split(",")
+        values = data_line.split(",")
+        row = dict(zip(header, values))
+        assert len(row["event_config_hash"]) > 0
+        assert len(row["demand_config_hash"]) > 0
+        assert len(row["pricebook_hash"]) > 0
+
+    def test_export_no_raw_requests(self, client):
+        """Exports must never include raw request data or PII."""
+        sid = _create_scenario(client)
+        # JSON export
+        resp = client.post(
+            f"/scenarios/{sid}/export",
+            data=json.dumps({"mode": "summary_json", "include_explainability": True}),
+            content_type="application/json",
+        )
+        data = resp.get_json()
+        raw = json.dumps(data)
+        assert "request_id" not in raw
+        assert "account_id" not in raw
 
 
 class TestScenarioExportJSON:
@@ -112,7 +186,7 @@ class TestScenarioExportJSON:
         data = resp.get_json()
         assert "manifest" in data
         assert "metrics" in data
-        assert "explainability" in data
+        assert "explainability_summary" in data
 
     def test_export_json_without_explainability(self, client):
         sid = _create_scenario(client)
@@ -124,7 +198,7 @@ class TestScenarioExportJSON:
         data = resp.get_json()
         assert "manifest" in data
         assert "metrics" in data
-        assert "explainability" not in data
+        assert "explainability_summary" not in data
 
     def test_export_json_creates_audit_entry(self, client, db_path):
         sid = _create_scenario(client)

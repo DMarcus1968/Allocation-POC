@@ -221,17 +221,33 @@ def export_compare_csv():
 
 @app.route("/scenarios/<scenario_id>/export", methods=["POST"])
 def export_scenario(scenario_id: str):
-    """Export the last preview run for a scenario as CSV or JSON.
+    """Export the last preview run for a scenario.
 
-    Body: { "format": "csv"|"json", "include_explainability": true|false,
-            "seed": <optional>, "use_common_seed": true }
+    Body: {
+        "mode": "metrics_csv"|"long_csv"|"summary_json",
+        "include_explainability": true|false,
+        "seed": <optional>, "use_common_seed": true
+    }
+
+    mode defaults to "metrics_csv" (wide format, one row per run).
+    "long_csv" = metric_name/metric_value long form.
+    "summary_json" = manifest + metrics + explainability summary (no raw allocations).
+
+    Exports never include raw requests/demand draws or fan-identifiable data.
     """
     sc = scenario_store.get_scenario(scenario_id)
     if sc is None:
         return jsonify({"error": "Scenario not found"}), 404
 
     body = request.get_json(force=True) if request.data else {}
-    fmt = body.get("format", "csv")
+    # Backward compat: accept "format" as alias for "mode"
+    mode = body.get("mode") or body.get("format", "metrics_csv")
+    # Map legacy format values
+    if mode == "csv":
+        mode = "long_csv"
+    if mode == "json":
+        mode = "summary_json"
+
     include_expl = body.get("include_explainability", True)
     seed = body.get("seed")
     use_common_seed = body.get("use_common_seed", True)
@@ -248,11 +264,14 @@ def export_scenario(scenario_id: str):
     manifest = result["manifest"]
     batch_m = result["metrics"]["batch"]
     expl_notes = result.get("explainability", {}).get("notes", [])
-    expl_summary = "; ".join(expl_notes)[:500] if include_expl else ""
+    # Truncate each bullet to 200 chars, max 10 bullets
+    safe_notes = [n[:200] for n in expl_notes[:10]]
+    expl_summary = "; ".join(safe_notes)[:500] if include_expl else ""
 
     actor = body.get("actor", sc.created_by)
+    config_hashes = manifest.get("config_hashes", {})
 
-    if fmt == "json":
+    if mode == "summary_json":
         export_payload = {
             "manifest": manifest,
             "metrics": {
@@ -262,20 +281,78 @@ def export_scenario(scenario_id: str):
             },
         }
         if include_expl:
-            export_payload["explainability"] = result.get("explainability", {})
+            # Only include bindings/notes — never raw allocations
+            expl = result.get("explainability", {})
+            export_payload["explainability_summary"] = {
+                "bindings": expl.get("bindings", {}),
+                "lost_tickets_estimates": expl.get("lost_tickets_estimates", {}),
+                "notes": safe_notes,
+            }
 
         append_audit(
             scenario_id,
             "export",
             actor=actor,
-            payload={"format": "json", "rows": 1, "filename": f"{scenario_id}_export.json"},
+            payload={"format": "summary_json", "rows": 1, "filename": f"{scenario_id}_export.json"},
         )
 
         return jsonify(export_payload)
-    else:
+
+    elif mode == "metrics_csv":
+        # Wide format: one row with all metric columns sorted alphabetically
+        metric_keys = sorted(batch_m.keys())
         columns = [
             "scenario_id", "scenario_name", "run_id", "run_timestamp",
-            "seed", "metric_name", "metric_value",
+            "seed", "checksum", "git_commit",
+            "event_config_hash", "demand_config_hash", "pricebook_hash",
+        ] + metric_keys
+        if include_expl:
+            columns.append("explainability_notes")
+
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=columns)
+        writer.writeheader()
+
+        row = {
+            "scenario_id": scenario_id,
+            "scenario_name": sc.name,
+            "run_id": manifest["run_id"],
+            "run_timestamp": manifest["timestamp"],
+            "seed": manifest["seed"],
+            "checksum": manifest["checksum"],
+            "git_commit": manifest.get("git_commit", ""),
+            "event_config_hash": config_hashes.get("event_config_hash", ""),
+            "demand_config_hash": config_hashes.get("demand_config_hash", ""),
+            "pricebook_hash": config_hashes.get("pricebook_hash", ""),
+        }
+        for mk in metric_keys:
+            row[mk] = batch_m[mk]
+        if include_expl:
+            row["explainability_notes"] = expl_summary
+        writer.writerow(row)
+
+        append_audit(
+            scenario_id,
+            "export",
+            actor=actor,
+            payload={"format": "metrics_csv", "rows": 1, "filename": f"{scenario_id}_export.csv"},
+        )
+
+        return Response(
+            buf.getvalue(),
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={scenario_id}_metrics.csv"
+            },
+        )
+
+    else:
+        # long_csv: metric_name/metric_value long form
+        columns = [
+            "scenario_id", "scenario_name", "run_id", "run_timestamp",
+            "seed", "checksum", "git_commit",
+            "event_config_hash", "demand_config_hash", "pricebook_hash",
+            "metric_name", "metric_value",
         ]
         if include_expl:
             columns.append("explainability_notes")
@@ -285,15 +362,20 @@ def export_scenario(scenario_id: str):
         writer.writeheader()
 
         row_count = 0
-        for metric_name, metric_value in batch_m.items():
+        for metric_name in sorted(batch_m.keys()):
             row = {
                 "scenario_id": scenario_id,
                 "scenario_name": sc.name,
                 "run_id": manifest["run_id"],
                 "run_timestamp": manifest["timestamp"],
                 "seed": manifest["seed"],
+                "checksum": manifest["checksum"],
+                "git_commit": manifest.get("git_commit", ""),
+                "event_config_hash": config_hashes.get("event_config_hash", ""),
+                "demand_config_hash": config_hashes.get("demand_config_hash", ""),
+                "pricebook_hash": config_hashes.get("pricebook_hash", ""),
                 "metric_name": metric_name,
-                "metric_value": metric_value,
+                "metric_value": batch_m[metric_name],
             }
             if include_expl:
                 row["explainability_notes"] = expl_summary
@@ -305,7 +387,7 @@ def export_scenario(scenario_id: str):
             "export",
             actor=actor,
             payload={
-                "format": "csv",
+                "format": "long_csv",
                 "rows": row_count,
                 "filename": f"{scenario_id}_export.csv",
             },

@@ -1,4 +1,4 @@
-"""Tests for the audit trail (Phase 2B Step 7)."""
+"""Tests for the audit trail (Phase 2B Steps 7-8)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,13 @@ from src.dashboard.scenario_store import (
     lock_scenario,
     update_scenario,
 )
-from src.dashboard.audit_store import append_audit, list_audits
+from src.dashboard.audit_store import (
+    append_audit,
+    bound_payload,
+    list_audits,
+    redact_actor,
+    stable_json,
+)
 from src.dashboard.tradeoff_engine import run_preview
 
 
@@ -25,21 +31,98 @@ def db_path(tmp_path: Path) -> Path:
     return p
 
 
+class TestRedaction:
+    def test_redact_email(self):
+        assert redact_actor("alice@corp.com") == "a***@corp.com"
+
+    def test_redact_complex_email(self):
+        result = redact_actor("d.marcus@ticketmaster.com")
+        assert result == "d***@ticketmaster.com"
+
+    def test_no_email_unchanged(self):
+        assert redact_actor("system") == "system"
+
+    def test_empty_string(self):
+        assert redact_actor("") == ""
+
+
+class TestBoundPayload:
+    def test_truncates_long_strings(self):
+        payload = {"note": "x" * 600}
+        bounded = bound_payload(payload)
+        assert len(bounded["note"]) <= 503  # 500 + "..."
+
+    def test_caps_long_lists(self):
+        payload = {"items": list(range(50))}
+        bounded = bound_payload(payload)
+        assert len(bounded["items"]) <= 20
+
+    def test_small_payload_unchanged(self):
+        payload = {"key": "val"}
+        bounded = bound_payload(payload)
+        assert bounded == payload
+
+    def test_total_payload_bounded(self):
+        payload = {f"key_{i}": "x" * 400 for i in range(30)}
+        bounded = bound_payload(payload, max_bytes=2000)
+        serialized = stable_json(bounded)
+        assert len(serialized.encode()) <= 2500  # reasonable bounds
+
+
+class TestStableJson:
+    def test_sorted_keys(self):
+        result = stable_json({"b": 2, "a": 1})
+        assert result == '{"a":1,"b":2}'
+
+    def test_compact(self):
+        result = stable_json({"key": "value"})
+        assert " " not in result
+
+
 class TestAuditAppend:
     def test_append_returns_id(self, db_path: Path):
         audit_id = append_audit(
-            "test-scenario", "test_event", "tester", {"key": "val"}, db_path
+            "test-scenario", "test_event", "tester", {"key": "val"}, db_path=db_path
         )
         assert isinstance(audit_id, str)
         assert len(audit_id) > 0
 
     def test_list_audits_returns_entry(self, db_path: Path):
-        append_audit("sc-1", "create", "tester", {"name": "test"}, db_path)
+        append_audit("sc-1", "create", "tester", {"name": "test"}, db_path=db_path)
         audits = list_audits(scenario_id="sc-1", db_path=db_path)
         assert len(audits) >= 1
         assert audits[0]["event"] == "create"
+        # Actor should be stored
         assert audits[0]["actor"] == "tester"
-        assert audits[0]["payload"]["name"] == "test"
+
+    def test_canonical_payload_structure(self, db_path: Path):
+        append_audit("sc-2", "create", "user@test.com", {"name": "test"}, db_path=db_path)
+        audits = list_audits(scenario_id="sc-2", db_path=db_path)
+        payload = audits[0]["payload"]
+        # Canonical structure
+        assert "event" in payload
+        assert "scenario_id" in payload
+        assert "actor" in payload
+        assert "timestamp" in payload
+        assert "entity" in payload
+        assert "summary" in payload
+        assert "details" in payload
+        # Actor redacted
+        assert payload["actor"] == "u***@test.com"
+        # Details contain original data
+        assert payload["details"]["name"] == "test"
+
+    def test_actor_redacted_in_db(self, db_path: Path):
+        append_audit("sc-3", "create", "alice@corp.com", db_path=db_path)
+        audits = list_audits(scenario_id="sc-3", db_path=db_path)
+        assert audits[0]["actor"] == "a***@corp.com"
+
+    def test_payload_bounded(self, db_path: Path):
+        huge = {"big_field": "x" * 10000}
+        append_audit("sc-4", "create", "system", huge, db_path=db_path)
+        audits = list_audits(scenario_id="sc-4", db_path=db_path)
+        details = audits[0]["payload"]["details"]
+        assert len(details["big_field"]) <= 503  # truncated
 
 
 class TestAuditFromScenarioStore:
@@ -59,10 +142,11 @@ class TestAuditFromScenarioStore:
         events = [a["event"] for a in audits]
         assert "update" in events
 
-        # Verify update payload has checksums
+        # Verify update payload has checksums in details
         update_audit = next(a for a in audits if a["event"] == "update")
-        assert "before_checksum" in update_audit["payload"]
-        assert "after_checksum" in update_audit["payload"]
+        details = update_audit["payload"]["details"]
+        assert "before_checksum" in details
+        assert "after_checksum" in details
 
     def test_clone_produces_audit(self, db_path: Path):
         sc = create_scenario(
@@ -75,8 +159,9 @@ class TestAuditFromScenarioStore:
         assert "clone" in events
 
         clone_audit = next(a for a in audits if a["event"] == "clone")
-        assert clone_audit["payload"]["source_id"] == sc.id
-        assert clone_audit["payload"]["new_id"] == cloned.id
+        details = clone_audit["payload"]["details"]
+        assert details["source_id"] == sc.id
+        assert details["new_id"] == cloned.id
 
     def test_lock_produces_audit(self, db_path: Path):
         sc = create_scenario({"name": "Lock Me"}, db_path)
@@ -85,11 +170,25 @@ class TestAuditFromScenarioStore:
         events = [a["event"] for a in audits]
         assert "lock" in events
 
+        lock_audit = next(a for a in audits if a["event"] == "lock")
+        details = lock_audit["payload"]["details"]
+        assert "reference_hashes" in details
+
     def test_locked_scenario_rejects_update(self, db_path: Path):
         sc = create_scenario({"name": "Lock Test"}, db_path)
         lock_scenario(sc.id, db_path)
         with pytest.raises(ScenarioLocked):
             update_scenario(sc.id, {"name": "Nope"}, db_path)
+
+    def test_lock_stores_reference_hashes(self, db_path: Path):
+        sc = create_scenario({"name": "Freeze Test"}, db_path)
+        locked = lock_scenario(sc.id, db_path)
+        assert locked.frozen_references is True
+        assert locked.frozen_at is not None
+        assert locked.frozen_by is not None
+        assert "event_config_hash" in locked.reference_hashes
+        assert "demand_config_hash" in locked.reference_hashes
+        assert "pricebook_hash" in locked.reference_hashes
 
 
 class TestAuditFromRun:
@@ -108,11 +207,26 @@ class TestAuditFromRun:
         assert "run" in events
 
         run_audit = next(a for a in audits if a["event"] == "run")
-        assert "run_id" in run_audit["payload"]
-        assert "seed" in run_audit["payload"]
-        assert "checksum" in run_audit["payload"]
-        assert "demand_hash" in run_audit["payload"]
-        assert "tickets_fulfilled" in run_audit["payload"]
+        details = run_audit["payload"]["details"]
+        assert "run_id" in details
+        assert "seed" in details
+        assert "checksum" in details
+        assert "demand_hash" in details
+        assert "tickets_fulfilled" in details
+
+    def test_run_manifest_has_config_hashes(self, db_path: Path):
+        sc = create_scenario(
+            {"name": "Config Hash Test", "seed_policy": {"mode": "common", "seed": 42}},
+            db_path,
+        )
+        result = run_preview(sc.id, seed=42, db_path=db_path)
+        manifest = result["manifest"]
+        assert "git_commit" in manifest
+        assert "code_version" in manifest
+        assert "config_hashes" in manifest
+        assert "event_config_hash" in manifest["config_hashes"]
+        assert "demand_config_hash" in manifest["config_hashes"]
+        assert "pricebook_hash" in manifest["config_hashes"]
 
 
 class TestAuditFilters:

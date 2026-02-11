@@ -12,6 +12,22 @@ from __future__ import annotations
 from src.models.allocation import AllocationResult
 from src.models.scenario import Scenario, PROMOTER_CONSTRAINT_KEYS
 
+# Promoter-safe label mapping for priority_mode values
+_PRIORITY_MODE_LABELS: dict[str, str] = {
+    "loyalty": "promoter-provided tier",
+    "promoter_provided_tier": "promoter-provided tier",
+    "price_tier": "promoter-provided tier",
+    "tier_then_time": "tier-then-time",
+    "random": "random",
+}
+
+
+def _safe_value_label(knob: str, value) -> str:
+    """Return a promoter-safe display label for a knob value."""
+    if knob == "priority_mode" and isinstance(value, str):
+        return _PRIORITY_MODE_LABELS.get(value, value)
+    return str(value)
+
 
 def explain_run(
     batch_result: AllocationResult,
@@ -236,14 +252,18 @@ def _build_delta_notes(
     if pc_changes:
         notes.append("Promoter constraint changes:")
         for ch in pc_changes:
+            base_label = _safe_value_label(ch["knob"], ch["base"])
+            alt_label = _safe_value_label(ch["knob"], ch["alt"])
             notes.append(
-                f"  '{ch['knob']}' changed from {ch['base']} to {ch['alt']}."
+                f"  '{ch['knob']}' changed from {base_label} to {alt_label}."
             )
     if ap_changes:
         notes.append("Allocation policy changes:")
         for ch in ap_changes:
+            base_label = _safe_value_label(ch["knob"], ch["base"])
+            alt_label = _safe_value_label(ch["knob"], ch["alt"])
             notes.append(
-                f"  '{ch['knob']}' changed from {ch['base']} to {ch['alt']}."
+                f"  '{ch['knob']}' changed from {base_label} to {alt_label}."
             )
     if not pc_changes and not ap_changes:
         notes.append(

@@ -75,6 +75,7 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("authenticated"):
+            print(f"  [auth] BLOCKED {request.method} {request.path} — no session", flush=True)
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated
@@ -111,6 +112,7 @@ def dashboard():
 @login_required
 def run_allocation():
     """Run the allocation simulation with user-provided parameters."""
+    print(f"  [run] >>> run_allocation() entered", flush=True)
     t_start = time.time()
     try:
         # Parse event configuration from form
@@ -153,7 +155,7 @@ def run_allocation():
 
         t0 = time.time()
         requests_list = generate_synthetic_demand(event, demand_multiplier, seed)
-        print(f"  [timing] generate_synthetic_demand: {time.time()-t0:.2f}s ({len(requests_list)} requests)")
+        print(f"  [timing] generate_synthetic_demand: {time.time()-t0:.2f}s ({len(requests_list)} requests)", flush=True)
 
         # Run selected strategies
         selected = request.form.getlist("strategies[]")
@@ -176,7 +178,7 @@ def run_allocation():
                     results, explanation = func(event, requests_list)
                 else:
                     results, explanation = func(event, requests_list, seed=seed)
-                print(f"  [timing] {name}: {time.time()-t0:.2f}s")
+                print(f"  [timing] {name}: {time.time()-t0:.2f}s", flush=True)
                 comparison[key] = {
                     "name": name,
                     "explanation": explanation,
@@ -195,13 +197,11 @@ def run_allocation():
                 "total_requests": len(requests_list),
             }),
         })
-        session["result_id"] = result_id
-
-        print(f"  [timing] TOTAL: {time.time()-t_start:.2f}s — result_id={result_id}")
-        return redirect(url_for("results"))
+        print(f"  [timing] TOTAL: {time.time()-t_start:.2f}s — result_id={result_id}", flush=True)
+        return redirect(url_for("results", rid=result_id))
 
     except Exception as e:
-        print(f"  [ERROR] Allocation failed after {time.time()-t_start:.2f}s: {type(e).__name__}: {e}")
+        print(f"  [ERROR] Allocation failed after {time.time()-t_start:.2f}s: {type(e).__name__}: {e}", flush=True)
         flash(f"Allocation error: {e}", "error")
         return redirect(url_for("dashboard"))
 
@@ -209,12 +209,16 @@ def run_allocation():
 @app.route("/results")
 @login_required
 def results():
-    result_id = session.get("result_id")
+    # Accept result_id from URL param (primary) or session (fallback)
+    result_id = request.args.get("rid") or session.get("result_id")
     stored = _load_results(result_id)
 
     if not stored:
         flash("No results to display. Please run a simulation first.", "info")
         return redirect(url_for("dashboard"))
+
+    # Save to session so the nav "Results" link keeps working
+    session["result_id"] = result_id
 
     comparison = json.loads(stored["comparison"])
     event_info = json.loads(stored["event"])

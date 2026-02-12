@@ -76,18 +76,13 @@ def generate_synthetic_demand(event, demand_multiplier=1.5, seed=None):
     fan_types += ["general"] * (total_demand - len(fan_types))
     random.shuffle(fan_types)
 
+    # Precompute section preference weights (lower price = higher demand)
+    weights = [1.0 / (s["price"] / 100) for s in event.sections]
+    total_weight = sum(weights)
+    weights = [w / total_weight for w in weights]
+
     requests = []
     for i in range(total_demand):
-        # Preference weighted toward cheaper sections (more realistic)
-        weights = []
-        for s in event.sections:
-            # Lower price = higher demand weight
-            base_weight = 1.0 / (s["price"] / 100)
-            weights.append(base_weight)
-
-        total_weight = sum(weights)
-        weights = [w / total_weight for w in weights]
-
         preferred = random.choices(section_names, weights=weights, k=1)[0]
         section_price = section_map[preferred]["price"]
 
@@ -293,6 +288,9 @@ def allocate_access_maximizing(event, requests, seed=None):
     for req in requests:
         section_demand[req.preferred_section] = section_demand.get(req.preferred_section, 0) + req.quantity
 
+    # Track allocated tickets per section with a running counter (avoids O(n²) re-scan)
+    section_allocated = {s["name"]: 0 for s in event.sections}
+
     results = []
     for req in shuffled:
         section = req.preferred_section
@@ -308,9 +306,7 @@ def allocate_access_maximizing(event, requests, seed=None):
             continue
 
         # Cap quantity to spread access - if demand > 2x supply, limit to 2 tickets
-        demand_ratio = section_demand.get(section, 0) / max(1, section_remaining.get(section, 1) + (
-            sum(r.quantity for r in results if r.section == section and r.status == "allocated")
-        ))
+        demand_ratio = section_demand.get(section, 0) / max(1, section_remaining.get(section, 1) + section_allocated[section])
         cap = req.quantity
         if demand_ratio > 3:
             cap = min(req.quantity, 1)
@@ -319,6 +315,7 @@ def allocate_access_maximizing(event, requests, seed=None):
 
         if section_remaining[section] >= cap:
             section_remaining[section] -= cap
+            section_allocated[section] += cap
             reason = f"Allocated {cap} tickets (access-maximizing)"
             if cap < req.quantity:
                 reason += f" — reduced from {req.quantity} to serve more fans"
@@ -332,6 +329,7 @@ def allocate_access_maximizing(event, requests, seed=None):
             available = section_remaining[section]
             if available > 0:
                 section_remaining[section] = 0
+                section_allocated[section] += available
                 results.append(AllocationResult(
                     fan_id=req.fan_id, section=section, quantity=available,
                     price_per_ticket=price, total_price=price * available,
@@ -379,13 +377,12 @@ def _build_explanation(strategy_name, event, requests, results):
             "fill_rate": round(sum(r.quantity for r in sec_allocated) / max(1, s["capacity"]) * 100, 1),
         }
 
-    # Fan type breakdown
+    # Fan type breakdown - use index to avoid O(n²) lookup
+    fan_id_to_type = {req.fan_id: req.fan_type for req in requests}
     fan_type_stats = {}
     for ft in ["verified_fan", "presale", "general"]:
         ft_requests = [r for r in requests if r.fan_type == ft]
-        ft_allocated = [r for r in allocated if any(
-            req.fan_id == r.fan_id and req.fan_type == ft for req in requests
-        )]
+        ft_allocated = [r for r in allocated if fan_id_to_type.get(r.fan_id) == ft]
         fan_type_stats[ft] = {
             "total_requests": len(ft_requests),
             "fans_served": len(ft_allocated),

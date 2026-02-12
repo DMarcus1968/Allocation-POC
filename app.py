@@ -14,6 +14,8 @@ Default password: allocation2024 (change via ALLOC_PASSWORD env var)
 import os
 import json
 import secrets
+import tempfile
+import time
 from functools import wraps
 
 from flask import (
@@ -33,8 +35,26 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 # Password for accessing the interface
 APP_PASSWORD = os.environ.get("ALLOC_PASSWORD", "allocation2024")
 
-# Server-side storage for results (avoids cookie size limits)
-_results_store = {}
+# File-based result storage (survives debug reloader restarts)
+_RESULTS_DIR = os.path.join(tempfile.gettempdir(), "allocation_poc_results")
+os.makedirs(_RESULTS_DIR, exist_ok=True)
+
+
+def _save_results(result_id, data):
+    path = os.path.join(_RESULTS_DIR, f"{result_id}.json")
+    with open(path, "w") as f:
+        json.dump(data, f)
+
+
+def _load_results(result_id):
+    if not result_id:
+        return None
+    path = os.path.join(_RESULTS_DIR, f"{result_id}.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
 
 
 # --- Authentication ---
@@ -79,6 +99,7 @@ def dashboard():
 @login_required
 def run_allocation():
     """Run the allocation simulation with user-provided parameters."""
+    t_start = time.time()
     try:
         # Parse event configuration from form
         event_name = request.form.get("event_name", "Concert Event")
@@ -118,7 +139,9 @@ def run_allocation():
         demand_multiplier = float(request.form.get("demand_multiplier", 1.5))
         seed = int(request.form.get("seed", 42))
 
+        t0 = time.time()
         requests_list = generate_synthetic_demand(event, demand_multiplier, seed)
+        print(f"  [timing] generate_synthetic_demand: {time.time()-t0:.2f}s ({len(requests_list)} requests)")
 
         # Run selected strategies
         selected = request.form.getlist("strategies[]")
@@ -136,18 +159,20 @@ def run_allocation():
         for key in selected:
             if key in strategy_map:
                 name, func = strategy_map[key]
+                t0 = time.time()
                 if key == "fcfs":
                     results, explanation = func(event, requests_list)
                 else:
                     results, explanation = func(event, requests_list, seed=seed)
+                print(f"  [timing] {name}: {time.time()-t0:.2f}s")
                 comparison[key] = {
                     "name": name,
                     "explanation": explanation,
                 }
 
-        # Store results server-side (Flask session cookies have a ~4KB limit)
+        # Store results to disk (survives debug reloader restarts)
         result_id = secrets.token_hex(8)
-        _results_store[result_id] = {
+        _save_results(result_id, {
             "comparison": json.dumps(comparison, default=str),
             "event": json.dumps({
                 "name": event_name,
@@ -157,13 +182,15 @@ def run_allocation():
                 "demand_multiplier": demand_multiplier,
                 "total_requests": len(requests_list),
             }),
-        }
+        })
         session["result_id"] = result_id
 
+        print(f"  [timing] TOTAL: {time.time()-t_start:.2f}s — result_id={result_id}")
         return redirect(url_for("results"))
 
-    except (ValueError, TypeError) as e:
-        flash(f"Invalid input: {e}", "error")
+    except Exception as e:
+        print(f"  [ERROR] Allocation failed after {time.time()-t_start:.2f}s: {type(e).__name__}: {e}")
+        flash(f"Allocation error: {e}", "error")
         return redirect(url_for("dashboard"))
 
 
@@ -171,7 +198,7 @@ def run_allocation():
 @login_required
 def results():
     result_id = session.get("result_id")
-    stored = _results_store.get(result_id) if result_id else None
+    stored = _load_results(result_id)
 
     if not stored:
         flash("No results to display. Please run a simulation first.", "info")
@@ -188,7 +215,7 @@ def results():
 def api_results():
     """JSON endpoint for results (used by charts)."""
     result_id = session.get("result_id")
-    stored = _results_store.get(result_id) if result_id else None
+    stored = _load_results(result_id)
 
     if not stored:
         return jsonify({"error": "No results available"}), 404

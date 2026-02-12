@@ -33,6 +33,9 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 # Password for accessing the interface
 APP_PASSWORD = os.environ.get("ALLOC_PASSWORD", "allocation2024")
 
+# Server-side storage for results (avoids cookie size limits)
+_results_store = {}
+
 
 # --- Authentication ---
 
@@ -142,16 +145,20 @@ def run_allocation():
                     "explanation": explanation,
                 }
 
-        # Store in session for the results page
-        session["last_results"] = json.dumps(comparison, default=str)
-        session["last_event"] = json.dumps({
-            "name": event_name,
-            "venue": venue_name,
-            "sections": sections,
-            "max_per_person": max_per_person,
-            "demand_multiplier": demand_multiplier,
-            "total_requests": len(requests_list),
-        })
+        # Store results server-side (Flask session cookies have a ~4KB limit)
+        result_id = secrets.token_hex(8)
+        _results_store[result_id] = {
+            "comparison": json.dumps(comparison, default=str),
+            "event": json.dumps({
+                "name": event_name,
+                "venue": venue_name,
+                "sections": sections,
+                "max_per_person": max_per_person,
+                "demand_multiplier": demand_multiplier,
+                "total_requests": len(requests_list),
+            }),
+        }
+        session["result_id"] = result_id
 
         return redirect(url_for("results"))
 
@@ -163,15 +170,15 @@ def run_allocation():
 @app.route("/results")
 @login_required
 def results():
-    raw_results = session.get("last_results")
-    raw_event = session.get("last_event")
+    result_id = session.get("result_id")
+    stored = _results_store.get(result_id) if result_id else None
 
-    if not raw_results or not raw_event:
+    if not stored:
         flash("No results to display. Please run a simulation first.", "info")
         return redirect(url_for("dashboard"))
 
-    comparison = json.loads(raw_results)
-    event_info = json.loads(raw_event)
+    comparison = json.loads(stored["comparison"])
+    event_info = json.loads(stored["event"])
 
     return render_template("results.html", comparison=comparison, event=event_info)
 
@@ -180,15 +187,15 @@ def results():
 @login_required
 def api_results():
     """JSON endpoint for results (used by charts)."""
-    raw_results = session.get("last_results")
-    raw_event = session.get("last_event")
+    result_id = session.get("result_id")
+    stored = _results_store.get(result_id) if result_id else None
 
-    if not raw_results:
+    if not stored:
         return jsonify({"error": "No results available"}), 404
 
     return jsonify({
-        "comparison": json.loads(raw_results),
-        "event": json.loads(raw_event),
+        "comparison": json.loads(stored["comparison"]),
+        "event": json.loads(stored["event"]),
     })
 
 

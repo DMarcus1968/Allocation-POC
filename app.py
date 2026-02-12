@@ -30,7 +30,19 @@ from allocation_engine import (
 )
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
+
+# Use a stable secret key that survives debug reloader restarts.
+# secrets.token_hex(32) would generate a NEW key each restart, silently
+# invalidating all session cookies and breaking authentication.
+_key_path = os.path.join(tempfile.gettempdir(), "allocation_poc_secret_key")
+try:
+    with open(_key_path) as _f:
+        _stable_key = _f.read().strip()
+except FileNotFoundError:
+    _stable_key = secrets.token_hex(32)
+    with open(_key_path, "w") as _f:
+        _f.write(_stable_key)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", _stable_key)
 
 # Password for accessing the interface
 APP_PASSWORD = os.environ.get("ALLOC_PASSWORD", "allocation2024")

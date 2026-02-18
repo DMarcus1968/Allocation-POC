@@ -1,4 +1,4 @@
-# MediaReader — AI-Augmented Book Reader
+# FootNote — AI-Augmented Book Reader
 
 ## Vision
 A digital book reader that uses AI to recognize references to music, visual art, film, and other media within the text, then surfaces those references as interactive, inline experiences — so readers can *hear the song*, *see the painting*, or *watch the clip* without ever leaving the page.
@@ -99,12 +99,11 @@ An intelligent reader that:
 - **Fallback chain**: If Spotify has no result, try Apple Music, then YouTube
 
 ### 4. Inline Media Experience (Frontend)
-- **Music**: Mini-player bar at bottom of screen (play/pause, track info, progress)
-  - Spotify Web Playback SDK (for premium users)
-  - YouTube iframe embed (fallback, free)
-  - 30-second preview clips via Spotify/Apple Music APIs (no subscription required)
-- **Visual art**: Lightbox overlay showing the image with attribution
-- **Film**: Embedded video player or deep-link to streaming app
+The AI determines the **best medium** for each reference and routes to the appropriate provider:
+- **Music** → **Spotify**: Mini-player bar at bottom of screen (play/pause, track info, progress). 30-second previews for MVP, full playback for premium users later.
+- **Video** → **YouTube**: Embedded iframe player for film clips, concert footage, documentaries, music videos
+- **Images/Photos** → **Web image display**: Lightbox overlay showing paintings, photographs, album art with attribution and source
+- **Film references**: Trailer via YouTube embed; metadata from TMDB
 
 ---
 
@@ -126,16 +125,19 @@ An intelligent reader that:
 ## Phased Development Plan
 
 ### Phase 1 — Foundation (MVP)
-**Goal**: A working reader that can display an EPUB and recognize music references in a single book.
+**Goal**: A working web reader that can display an EPUB and recognize media references (music, art, film) in a single book, routing each to the appropriate media provider.
 
-- [ ] Project scaffolding (React + TypeScript + Node.js)
+- [ ] Project scaffolding (React + TypeScript + Node.js web app)
 - [ ] EPUB parser and basic book renderer (pagination, chapters, bookmarks)
-- [ ] AI recognition pipeline: send page/chapter text to Claude API, get back structured media references
-- [ ] Highlight recognized references in the text with subtle markers
-- [ ] Click a marker → show a card with entity info (title, artist, year)
-- [ ] Wire up Spotify search API to find matching tracks/albums
-- [ ] Embed 30-second Spotify preview playback on the card
-- [ ] Basic caching layer (don't re-analyze the same chapter)
+- [ ] AI recognition pipeline: send page text to Claude API, get back structured media references with type classification (music / visual_art / film)
+- [ ] Highlight recognized references in the text with subtle, type-aware markers
+- [ ] Click a marker → show a card with entity info (title, artist/creator, year, type)
+- [ ] Media routing: resolve references to the right provider based on type:
+  - Music → Spotify Web API search + 30-second preview playback
+  - Video/Film → YouTube Data API search + embedded iframe player
+  - Art/Photos → Web image search + lightbox overlay with attribution
+- [ ] Basic caching layer (don't re-analyze the same page)
+- [ ] Include a few public domain books (Project Gutenberg) for demo/testing
 
 **Test book**: Bruce Springsteen's *Born to Run* (EPUB)
 
@@ -163,36 +165,15 @@ An intelligent reader that:
 
 ---
 
-## Open Questions (Decisions Needed)
+## Decisions (Resolved)
 
-### Q1: Platform Target
-- **Web app** (fastest to build, cross-platform) — *Recommended for MVP*
-- **Desktop app** (Electron — richer file handling, offline support)
-- **Mobile app** (React Native — where most reading happens)
-- **All of the above** (start web, then wrap in Electron/RN later)
-
-### Q2: Music Playback Approach
-- **30-second previews only** (no user auth needed, simpler) — *Recommended for MVP*
-- **Full playback via Spotify SDK** (requires Spotify Premium + OAuth)
-- **YouTube embeds** (free, but more visual clutter in a reader)
-- **Deep-link to native app** (simplest, but breaks immersion — the thing we're solving)
-
-### Q3: AI Processing Strategy
-- **On-demand per page** (analyze text as the reader navigates) — *Recommended for MVP*
-- **Pre-process on import** (better UX but higher upfront cost/latency)
-- **Hybrid** (on-demand first read, cache for subsequent reads)
-
-### Q4: Book Source
-- **User-supplied EPUBs** (DRM-free files the user owns) — *Recommended for MVP*
-- **Integrated bookstore** (complex licensing, out of scope for prototype)
-- **Public domain books** (Project Gutenberg — good for testing but less media-rich)
-
-### Q5: Name
-Working title: **MediaReader**. Other candidates:
-- Annotune
-- Marginalia
-- SideTrack
-- Resonance
+| Question | Decision | Notes |
+|----------|----------|-------|
+| **Q1: Platform** | **Web first, wrap later** | Start as a React web app. Wrap in Electron (desktop) or React Native (mobile) in later phases. |
+| **Q2: Media Playback** | **Multi-modal, AI-routed** | AI classifies each reference by type and routes to the best provider: **Spotify** for music, **YouTube** for video, **web images** for art/photos. |
+| **Q3: AI Processing** | **On-demand per page** | Analyze text as the reader navigates. Cache results so each passage is only analyzed once. |
+| **Q4: Book Source** | **Both** | User-supplied DRM-free EPUBs + public domain books (Project Gutenberg) for demo/testing. |
+| **Q5: Name** | **FootNote** | A play on musical notes, book footnotes, and "noting" media references. |
 
 ---
 
@@ -209,10 +190,11 @@ Working title: **MediaReader**. Other candidates:
 
 ---
 
-## Next Steps (After Plan Approval)
-1. Finalize the open questions above
+## Next Steps (Ready to Build)
+1. ~~Finalize open questions~~ ✅ All resolved
 2. Create project scaffolding and repository structure
-3. Build the EPUB renderer (Phase 1, step 1)
-4. Build the AI recognition pipeline (Phase 1, step 2)
-5. Wire up Spotify search + preview (Phase 1, step 3)
-6. Integrate into the reader UI (Phase 1, step 4)
+3. Build the EPUB renderer (book display + pagination)
+4. Build the AI recognition pipeline (Claude API + type classification)
+5. Build the media resolution service (Spotify + YouTube + image routing)
+6. Integrate media cards and players into the reader UI
+7. Add public domain demo books and test end-to-end

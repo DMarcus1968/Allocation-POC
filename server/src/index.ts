@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { initDb } from './db/cache.js';
 import analyzeRouter from './routes/analyze.js';
 import booksRouter from './routes/books.js';
+import { DEMO_MODE } from './services/demo-data.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -28,9 +29,13 @@ app.use('/api/books', booksRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', name: 'FootNote API' });
+  res.json({ status: 'ok', name: 'FootNote API', demoMode: DEMO_MODE });
 });
 
 app.listen(PORT, () => {
   console.log(`FootNote API running on http://localhost:${PORT}`);
+  if (DEMO_MODE) {
+    console.log('Running in DEMO MODE (no API keys needed)');
+    console.log('Upload any EPUB to read — media references are detected by keyword matching');
+  }
 });

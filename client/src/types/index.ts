@@ -41,7 +41,20 @@ export interface BookMeta {
   title: string;
   author: string;
   coverUrl?: string;
-  fileName: string;
+  fileName?: string;
+  isDemo?: boolean;
+}
+
+export interface DemoChapter {
+  title: string;
+  html: string;
+}
+
+export interface DemoBookData {
+  id: string;
+  title: string;
+  author: string;
+  chapters: DemoChapter[];
 }
 
 export interface PageAnalysis {

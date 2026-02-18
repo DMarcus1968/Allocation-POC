@@ -73,21 +73,31 @@ export default function Library({ onSelectBook }: Props) {
           {books.map(book => (
             <button
               key={book.id}
-              className="book-card"
+              className={`book-card ${book.isDemo ? 'book-card--demo' : ''}`}
               onClick={() => onSelectBook(book)}
             >
               <div className="book-cover">
                 {book.coverUrl ? (
                   <img src={book.coverUrl} alt={book.title} />
                 ) : (
-                  <div className="book-cover-placeholder">
-                    <span>{book.title[0]}</span>
+                  <div className={`book-cover-placeholder ${book.isDemo ? 'demo-cover' : ''}`}>
+                    {book.isDemo ? (
+                      <div className="demo-cover-content">
+                        <span className="demo-cover-icon">♪</span>
+                        <span className="demo-cover-label">DEMO</span>
+                      </div>
+                    ) : (
+                      <span>{book.title[0]}</span>
+                    )}
                   </div>
                 )}
               </div>
               <div className="book-info">
                 <h3 className="book-title">{book.title}</h3>
                 <p className="book-author">{book.author}</p>
+                {book.isDemo && (
+                  <p className="book-demo-tag">Try it out &rarr;</p>
+                )}
               </div>
             </button>
           ))}

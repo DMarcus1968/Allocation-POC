@@ -1,11 +1,20 @@
 import { useState } from 'react';
 import Library from './components/Library/Library';
 import Reader from './components/Reader/Reader';
+import DemoReader from './components/Reader/DemoReader';
 import { BookMeta } from './types';
 import './styles/App.css';
 
 export default function App() {
   const [currentBook, setCurrentBook] = useState<BookMeta | null>(null);
+
+  const renderReader = () => {
+    if (!currentBook) return <Library onSelectBook={setCurrentBook} />;
+    if (currentBook.isDemo) {
+      return <DemoReader book={currentBook} onBack={() => setCurrentBook(null)} />;
+    }
+    return <Reader book={currentBook} onBack={() => setCurrentBook(null)} />;
+  };
 
   return (
     <div className="app">
@@ -23,11 +32,7 @@ export default function App() {
       </header>
 
       <main className="app-main">
-        {currentBook ? (
-          <Reader book={currentBook} onBack={() => setCurrentBook(null)} />
-        ) : (
-          <Library onSelectBook={setCurrentBook} />
-        )}
+        {renderReader()}
       </main>
     </div>
   );

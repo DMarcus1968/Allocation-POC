@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { analyzeText } from '../services/ai-recognition.js';
 import { resolveAllMedia } from '../services/media-resolver.js';
+import { analyzeDemoText, DEMO_MODE } from '../services/demo-data.js';
 import {
   getCachedAnalysis,
   setCachedAnalysis,
@@ -21,14 +22,20 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   try {
-    // Check cache first
+    // Demo mode: use built-in pattern matching (no API keys needed)
+    if (DEMO_MODE) {
+      const result = analyzeDemoText(text);
+      res.json(result);
+      return;
+    }
+
+    // Full mode: use Claude AI + real media APIs
     let references = getCachedAnalysis(bookId, cfiRange);
     if (!references) {
       references = await analyzeText(text);
       setCachedAnalysis(bookId, cfiRange, references);
     }
 
-    // Resolve media for each reference (also with caching)
     const resolvedMedia: ResolvedMedia[] = [];
     const unresolvedRefs = [];
 

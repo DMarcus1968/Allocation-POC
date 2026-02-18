@@ -126,6 +126,37 @@
   color: var(--text-muted);
 }
 
+.demo-cover {
+  background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
+}
+
+.demo-cover-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.demo-cover-icon {
+  font-size: 40px;
+  color: var(--accent-music);
+}
+
+.demo-cover-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: var(--font-sans);
+}
+
+.book-demo-tag {
+  font-size: 11px;
+  color: var(--accent-music);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
 .library-empty {
   text-align: center;
   padding: 60px 20px;

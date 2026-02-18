@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { saveBook, getBooks } from '../db/cache.js';
+import { DEMO_BOOK } from '../services/demo-book.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'data', 'books');
@@ -25,15 +26,32 @@ const upload = multer({
       cb(new Error('Only EPUB files are accepted'));
     }
   },
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB max
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
 
 const router = Router();
 
-// GET /api/books — list all books
+// GET /api/books — list all books (includes demo book)
 router.get('/', (_req: Request, res: Response) => {
-  const books = getBooks();
-  res.json({ books });
+  const uploadedBooks = getBooks();
+  const demoEntry = {
+    id: DEMO_BOOK.id,
+    title: DEMO_BOOK.title,
+    author: DEMO_BOOK.author,
+    file_name: '',
+    isDemo: true,
+  };
+  res.json({ books: [demoEntry, ...uploadedBooks] });
+});
+
+// GET /api/books/demo/chapters — get demo book chapters
+router.get('/demo/chapters', (_req: Request, res: Response) => {
+  res.json({
+    id: DEMO_BOOK.id,
+    title: DEMO_BOOK.title,
+    author: DEMO_BOOK.author,
+    chapters: DEMO_BOOK.chapters,
+  });
 });
 
 // POST /api/books — upload an EPUB

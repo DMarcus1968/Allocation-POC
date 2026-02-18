@@ -1,4 +1,4 @@
-import { BookMeta, MediaReference, ResolvedMedia } from '../types';
+import { BookMeta, DemoBookData, MediaReference, ResolvedMedia } from '../types';
 
 const API_BASE = '/api';
 
@@ -26,6 +26,12 @@ export function getBookFileUrl(bookId: string): string {
 export interface AnalyzeResult {
   references: MediaReference[];
   resolvedMedia: ResolvedMedia[];
+}
+
+export async function fetchDemoBook(): Promise<DemoBookData> {
+  const res = await fetch(`${API_BASE}/books/demo/chapters`);
+  if (!res.ok) throw new Error('Failed to load demo book');
+  return res.json();
 }
 
 export async function analyzePassage(

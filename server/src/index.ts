@@ -32,8 +32,8 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', name: 'FootNote API', demoMode: DEMO_MODE });
 });
 
-app.listen(PORT, () => {
-  console.log(`FootNote API running on http://localhost:${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`FootNote API running on http://0.0.0.0:${PORT}`);
   if (DEMO_MODE) {
     console.log('Running in DEMO MODE (no API keys needed)');
     console.log('Upload any EPUB to read — media references are detected by keyword matching');

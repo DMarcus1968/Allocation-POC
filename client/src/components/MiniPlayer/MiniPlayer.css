@@ -1,0 +1,154 @@
+.mini-player {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1);
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.mini-player-bar {
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  gap: 12px;
+}
+
+.mini-player-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.mini-player-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mini-player-type {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.mini-player-type--art {
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+  background: var(--accent-art);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.mini-player-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mini-player-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-player-creator {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-player-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.play-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-music);
+  color: white;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.play-btn:hover {
+  background: #1ed760;
+}
+
+.spotify-link {
+  color: var(--accent-music);
+  font-size: 16px;
+  padding: 4px;
+}
+
+.mini-player-close {
+  font-size: 20px;
+  color: var(--text-muted);
+  padding: 4px;
+}
+
+.mini-player-close:hover {
+  color: var(--text-primary);
+}
+
+/* Expanded YouTube */
+.mini-player--youtube.expanded {
+  height: auto;
+}
+
+.mini-player-video {
+  padding: 0 20px 16px;
+}
+
+.mini-player-video iframe {
+  width: 100%;
+  aspect-ratio: 16/9;
+  border: none;
+  border-radius: var(--radius);
+}
+
+/* Expanded Image */
+.mini-player--image.expanded {
+  height: auto;
+  max-height: 60vh;
+}
+
+.mini-player-image {
+  padding: 0 20px 16px;
+  text-align: center;
+}
+
+.mini-player-image img {
+  max-width: 100%;
+  max-height: 40vh;
+  border-radius: var(--radius);
+  object-fit: contain;
+}
+
+.image-attribution {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}

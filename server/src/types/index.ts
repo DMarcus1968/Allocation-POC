@@ -1,0 +1,44 @@
+export type MediaType = 'music' | 'visual_art' | 'film';
+
+export interface MediaEntity {
+  title: string;
+  creator: string;
+  kind: string;
+  year?: number;
+}
+
+export interface MediaReference {
+  id: string;
+  textSpan: string;
+  startOffset: number;
+  endOffset: number;
+  type: MediaType;
+  entity: MediaEntity;
+  confidence: number;
+}
+
+export interface ResolvedMedia {
+  referenceId: string;
+  type: MediaType;
+  provider: 'spotify' | 'youtube' | 'image';
+  title: string;
+  creator: string;
+  thumbnailUrl?: string;
+  spotifyTrackId?: string;
+  previewUrl?: string;
+  spotifyUri?: string;
+  youtubeVideoId?: string;
+  imageUrl?: string;
+  imageSource?: string;
+  imageAttribution?: string;
+}
+
+export interface AnalyzeRequest {
+  bookId: string;
+  cfiRange: string;
+  text: string;
+}
+
+export interface AnalyzeResponse {
+  references: MediaReference[];
+}

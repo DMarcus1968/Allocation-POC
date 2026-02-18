@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/components/Library/Library.tsx","./src/components/Lightbox/Lightbox.tsx","./src/components/MediaCard/MediaCard.tsx","./src/components/MiniPlayer/MiniPlayer.tsx","./src/components/Reader/DemoReader.tsx","./src/components/Reader/Reader.tsx","./src/services/api.ts","./src/types/index.ts"],"version":"5.9.3"}

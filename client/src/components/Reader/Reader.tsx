@@ -70,7 +70,15 @@ export default function Reader({ bookId, onBack }: Props) {
   // When chapter changes, analyze it
   useEffect(() => {
     if (!book) return;
-    setAnnotations(null);
+
+    // Show cached annotations immediately to avoid flicker on back-navigation
+    const cacheKey = `${book.id}-${chapterIndex}`;
+    if (annotationCache.current.has(cacheKey)) {
+      setAnnotations(annotationCache.current.get(cacheKey)!);
+    } else {
+      setAnnotations(null);
+    }
+
     setActiveMedia(null);
     setAnalysisNotice(null);
     runAnalysis(book, chapterIndex);

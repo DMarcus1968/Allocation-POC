@@ -45,9 +45,19 @@ router.post('/', async (req: Request, res: Response) => {
     let references = getCachedAnalysis(bookId, chapterIndex);
     if (!references) {
       console.log(`  Analyzing chapter ${chapterIndex} (${trimmedText.length} chars)...`);
-      references = await analyzeText(trimmedText);
+      const rawRefs = await analyzeText(trimmedText);
+
+      // Deduplicate: keep only the first occurrence of each unique entity
+      const seen = new Set<string>();
+      references = rawRefs.filter(ref => {
+        const key = `${ref.entity.title.toLowerCase()}|${ref.entity.creator.toLowerCase()}|${ref.type}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
       setCachedAnalysis(bookId, chapterIndex, references);
-      console.log(`  Chapter ${chapterIndex}: ${references.length} references found`);
+      console.log(`  Chapter ${chapterIndex}: ${references.length} references found (${rawRefs.length - references.length} duplicates removed)`);
       for (const ref of references) {
         console.log(`    - "${ref.textSpan}" (${ref.type}, ${ref.entity.title} by ${ref.entity.creator})`);
       }

@@ -40,10 +40,10 @@ export default function InlinePlayer({ media, onClose }: Props) {
               source={media.imageSource}
             />
           )}
-          {media.provider === 'wikipedia' && media.wikipediaUrl && (
+          {media.provider === 'wikipedia' && (
             <WikipediaView
               summary={media.wikipediaSummary}
-              url={media.wikipediaUrl}
+              url={media.wikipediaUrl || `https://en.wikipedia.org/wiki/${encodeURIComponent(media.title)}`}
               thumbnailUrl={media.thumbnailUrl}
             />
           )}
@@ -51,7 +51,7 @@ export default function InlinePlayer({ media, onClose }: Props) {
             <YouTubeSearchLink query={media.youtubeSearchQuery} title={media.title} creator={media.creator} />
           )}
           {/* Fallback when no playable content */}
-          {!media.youtubeVideoId && !media.previewUrl && !media.imageUrl && !media.youtubeSearchQuery && !media.wikipediaUrl && (
+          {media.provider !== 'wikipedia' && !media.youtubeVideoId && !media.previewUrl && !media.imageUrl && !media.youtubeSearchQuery && (
             <div className="inline-player-empty">
               <p>No preview available for this reference.</p>
               <p className="inline-player-entity">

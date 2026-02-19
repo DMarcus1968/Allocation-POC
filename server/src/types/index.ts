@@ -52,4 +52,5 @@ export interface BookMeta {
   title: string;
   author: string;
   chapters: BookChapter[];
+  coverImage?: string;
 }

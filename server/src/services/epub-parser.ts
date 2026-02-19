@@ -11,6 +11,7 @@ interface ManifestItem {
   id: string;
   href: string;
   mediaType: string;
+  properties?: string;
 }
 
 export async function parseEpub(buffer: Buffer, bookId: string): Promise<BookMeta> {
@@ -43,10 +44,19 @@ export async function parseEpub(buffer: Buffer, bookId: string): Promise<BookMet
       id: item.$.id,
       href: item.$.href,
       mediaType: item.$['media-type'],
+      properties: item.$.properties,
     });
   }
 
-  // Step 3: Read spine (reading order)
+  // Step 3: Extract cover image
+  let coverImage: string | undefined;
+  try {
+    coverImage = await extractCoverImage(meta, manifest, opfDir, zip);
+  } catch {
+    // Cover extraction is best-effort
+  }
+
+  // Step 4: Read spine (reading order)
   const spineItems: string[] = pkg.spine[0].itemref.map(
     (ref: any) => ref.$.idref
   );
@@ -76,7 +86,52 @@ export async function parseEpub(buffer: Buffer, bookId: string): Promise<BookMet
     chapters.push({ title: chapterTitle, html });
   }
 
-  return { id: bookId, title, author, chapters };
+  return { id: bookId, title, author, chapters, coverImage };
+}
+
+async function extractCoverImage(
+  meta: any,
+  manifest: Map<string, ManifestItem>,
+  opfDir: string,
+  zip: JSZip
+): Promise<string | undefined> {
+  // Strategy 1: EPUB3 — manifest item with properties="cover-image"
+  let coverItem = [...manifest.values()].find(
+    item => item.properties?.includes('cover-image')
+  );
+
+  // Strategy 2: EPUB2 — <meta name="cover" content="manifest-id"/>
+  if (!coverItem && meta.meta) {
+    const metas = Array.isArray(meta.meta) ? meta.meta : [meta.meta];
+    const coverMeta = metas.find((m: any) => m.$?.name === 'cover');
+    if (coverMeta?.$?.content) {
+      coverItem = manifest.get(coverMeta.$.content);
+    }
+  }
+
+  // Strategy 3: manifest item whose ID contains "cover" and is an image
+  if (!coverItem) {
+    coverItem = [...manifest.values()].find(
+      item => item.id.toLowerCase().includes('cover') && item.mediaType.startsWith('image/')
+    );
+  }
+
+  if (!coverItem) return undefined;
+
+  const coverPath = opfDir === '.' ? coverItem.href : `${opfDir}/${coverItem.href}`;
+  const coverFile = zip.file(coverPath) || zip.file(decodeURIComponent(coverPath));
+  if (!coverFile) return undefined;
+
+  const coverData = await coverFile.async('base64');
+  const ext = path.extname(coverItem.href).toLowerCase();
+  const mime =
+    ext === '.png' ? 'image/png' :
+    ext === '.gif' ? 'image/gif' :
+    ext === '.svg' ? 'image/svg+xml' :
+    ext === '.webp' ? 'image/webp' :
+    'image/jpeg';
+
+  return `data:${mime};base64,${coverData}`;
 }
 
 function extractText(field: any): string | undefined {

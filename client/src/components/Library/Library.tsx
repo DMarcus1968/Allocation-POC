@@ -108,15 +108,27 @@ export default function Library({ onSelectBook }: Props) {
             {books.map(book => (
               <button
                 key={book.id}
-                className={`book-card ${book.isDemo ? 'book-card--demo' : ''}`}
+                className={`book-card ${book.isDemo ? 'book-card--demo' : ''} ${book.coverImage ? 'book-card--has-cover' : ''}`}
                 onClick={() => onSelectBook(book.id)}
               >
-                <div className="book-card-spine" />
-                <div className="book-card-cover">
-                  <span className="book-card-title">{book.title}</span>
-                  <span className="book-card-author">{book.author}</span>
-                  {book.isDemo && <span className="book-card-badge">Demo</span>}
-                </div>
+                {book.coverImage ? (
+                  <div className="book-card-cover book-card-cover--image">
+                    <img src={book.coverImage} alt={book.title} className="book-card-cover-img" />
+                    <div className="book-card-cover-overlay">
+                      <span className="book-card-title">{book.title}</span>
+                      <span className="book-card-author">{book.author}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="book-card-spine" />
+                    <div className="book-card-cover">
+                      <span className="book-card-title">{book.title}</span>
+                      <span className="book-card-author">{book.author}</span>
+                      {book.isDemo && <span className="book-card-badge">Demo</span>}
+                    </div>
+                  </>
+                )}
                 {!book.isDemo && (
                   <button
                     className="book-card-delete"

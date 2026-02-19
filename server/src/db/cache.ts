@@ -37,9 +37,17 @@ export function initDb() {
       author TEXT NOT NULL,
       file_name TEXT NOT NULL,
       chapter_count INTEGER DEFAULT 0,
+      cover_image TEXT,
       created_at INTEGER DEFAULT (unixepoch())
     );
   `);
+
+  // Migration: add cover_image column if missing (existing DBs)
+  try {
+    db.exec('ALTER TABLE books ADD COLUMN cover_image TEXT');
+  } catch {
+    // Column already exists
+  }
 }
 
 export function getCachedAnalysis(bookId: string, chapterIndex: number): MediaReference[] | null {
@@ -68,10 +76,10 @@ export function setCachedMedia(referenceId: string, media: ResolvedMedia) {
   ).run(referenceId, JSON.stringify(media));
 }
 
-export function saveBook(id: string, title: string, author: string, fileName: string, chapterCount: number) {
+export function saveBook(id: string, title: string, author: string, fileName: string, chapterCount: number, coverImage?: string) {
   db.prepare(
-    'INSERT OR REPLACE INTO books (id, title, author, file_name, chapter_count) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, title, author, fileName, chapterCount);
+    'INSERT OR REPLACE INTO books (id, title, author, file_name, chapter_count, cover_image) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, title, author, fileName, chapterCount, coverImage || null);
 }
 
 export function getBooks() {

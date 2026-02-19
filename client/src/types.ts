@@ -46,6 +46,7 @@ export interface BookInfo {
   title: string;
   author: string;
   isDemo?: boolean;
+  coverImage?: string;
 }
 
 export interface BookData {

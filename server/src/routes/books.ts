@@ -32,7 +32,12 @@ const router = Router();
 
 // GET /api/books — list all books
 router.get('/', (_req: Request, res: Response) => {
-  const uploadedBooks = getBooks();
+  const uploadedBooks = getBooks().map((b: any) => ({
+    id: b.id,
+    title: b.title,
+    author: b.author,
+    coverImage: b.cover_image || undefined,
+  }));
   const demoEntry = {
     id: DEMO_BOOK.id,
     title: DEMO_BOOK.title,
@@ -97,13 +102,14 @@ router.post('/', (req: Request, res: Response) => {
       const bookId = randomUUID();
       const parsed = await parseEpub(buffer, bookId);
 
-      saveBook(bookId, parsed.title, parsed.author, req.file.filename, parsed.chapters.length);
+      saveBook(bookId, parsed.title, parsed.author, req.file.filename, parsed.chapters.length, parsed.coverImage);
 
       res.json({
         id: bookId,
         title: parsed.title,
         author: parsed.author,
         chapterCount: parsed.chapters.length,
+        coverImage: parsed.coverImage,
       });
     } catch (parseErr) {
       console.error('EPUB parse error on upload:', parseErr);

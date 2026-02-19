@@ -60,7 +60,9 @@ export async function analyzeText(text: string): Promise<MediaReference[]> {
   if (content.type !== 'text') return [];
 
   try {
-    const parsed = JSON.parse(content.text);
+    // Strip markdown code fences if present (e.g. ```json ... ```)
+    const raw = content.text.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '');
+    const parsed = JSON.parse(raw);
     return (parsed.references || []).map((ref: any) => ({
       id: randomUUID(),
       textSpan: ref.text_span,

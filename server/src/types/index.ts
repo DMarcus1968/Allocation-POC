@@ -20,7 +20,7 @@ export interface MediaReference {
 export interface ResolvedMedia {
   referenceId: string;
   type: MediaType;
-  provider: 'spotify' | 'youtube' | 'image';
+  provider: 'spotify' | 'youtube' | 'youtube-search' | 'image';
   title: string;
   creator: string;
   thumbnailUrl?: string;
@@ -28,6 +28,7 @@ export interface ResolvedMedia {
   previewUrl?: string;
   spotifyUri?: string;
   youtubeVideoId?: string;
+  youtubeSearchQuery?: string;
   imageUrl?: string;
   imageSource?: string;
   imageAttribution?: string;

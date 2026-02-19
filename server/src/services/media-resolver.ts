@@ -66,7 +66,7 @@ async function resolveMusic(ref: MediaReference): Promise<ResolvedMedia | null> 
 }
 
 async function resolveYouTube(ref: MediaReference, forType: 'music' | 'film' = 'film'): Promise<ResolvedMedia | null> {
-  if (!YOUTUBE_API_KEY) return null;
+  if (!YOUTUBE_API_KEY) return resolveYouTubeFree(ref, forType);
 
   const query = `${ref.entity.title} ${ref.entity.creator}`;
   try {
@@ -75,7 +75,7 @@ async function resolveYouTube(ref: MediaReference, forType: 'music' | 'film' = '
     );
     const data = await res.json();
     const item = data.items?.[0];
-    if (!item) return null;
+    if (!item) return resolveYouTubeFree(ref, forType);
 
     return {
       referenceId: ref.id,
@@ -87,9 +87,88 @@ async function resolveYouTube(ref: MediaReference, forType: 'music' | 'film' = '
       youtubeVideoId: item.id.videoId,
     };
   } catch (err) {
-    console.error('YouTube search failed:', err);
-    return null;
+    console.error('YouTube API failed, trying free fallback:', err);
+    return resolveYouTubeFree(ref, forType);
   }
+}
+
+// Free YouTube search instances (no API key required)
+const FREE_SEARCH_INSTANCES = [
+  { type: 'piped' as const, url: 'https://pipedapi.kavin.rocks' },
+  { type: 'piped' as const, url: 'https://pipedapi.adminforge.de' },
+  { type: 'invidious' as const, url: 'https://inv.nadeko.net' },
+  { type: 'invidious' as const, url: 'https://vid.puffyan.us' },
+];
+
+async function fetchWithTimeout(url: string, timeoutMs = 5000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function resolveYouTubeFree(ref: MediaReference, forType: 'music' | 'film' = 'film'): Promise<ResolvedMedia | null> {
+  const query = `${ref.entity.title} ${ref.entity.creator}`;
+
+  for (const instance of FREE_SEARCH_INSTANCES) {
+    try {
+      if (instance.type === 'piped') {
+        const res = await fetchWithTimeout(
+          `${instance.url}/search?q=${encodeURIComponent(query)}&filter=videos`
+        );
+        if (!res.ok) continue;
+        const data = await res.json();
+        const item = data.items?.[0];
+        if (!item?.url) continue;
+        const videoId = item.url.replace('/watch?v=', '');
+        if (!videoId) continue;
+        console.log(`  Resolved "${ref.entity.title}" via Piped -> ${videoId}`);
+        return {
+          referenceId: ref.id,
+          type: forType,
+          provider: 'youtube',
+          title: ref.entity.title,
+          creator: ref.entity.creator,
+          thumbnailUrl: item.thumbnail,
+          youtubeVideoId: videoId,
+        };
+      } else {
+        const res = await fetchWithTimeout(
+          `${instance.url}/api/v1/search?q=${encodeURIComponent(query)}&type=video`
+        );
+        if (!res.ok) continue;
+        const data = await res.json();
+        const item = Array.isArray(data) ? data[0] : null;
+        if (!item?.videoId) continue;
+        console.log(`  Resolved "${ref.entity.title}" via Invidious -> ${item.videoId}`);
+        return {
+          referenceId: ref.id,
+          type: forType,
+          provider: 'youtube',
+          title: ref.entity.title,
+          creator: ref.entity.creator,
+          thumbnailUrl: item.videoThumbnails?.[3]?.url,
+          youtubeVideoId: item.videoId,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // Ultimate fallback: provide a YouTube search link
+  console.log(`  No video ID found for "${ref.entity.title}" — using search link fallback`);
+  return {
+    referenceId: ref.id,
+    type: forType,
+    provider: 'youtube-search',
+    title: ref.entity.title,
+    creator: ref.entity.creator,
+    youtubeSearchQuery: query,
+  };
 }
 
 async function resolveImage(ref: MediaReference): Promise<ResolvedMedia | null> {

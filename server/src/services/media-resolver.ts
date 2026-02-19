@@ -32,7 +32,7 @@ async function getSpotifyToken(): Promise<string | null> {
 
 async function resolveMusic(ref: MediaReference): Promise<ResolvedMedia | null> {
   const token = await getSpotifyToken();
-  if (!token) return resolveMusicViaYouTube(ref);
+  if (!token) return resolveYouTube(ref, 'music');
 
   const query = `${ref.entity.kind === 'album' ? 'album' : 'track'}:${ref.entity.title} artist:${ref.entity.creator}`;
   const type = ref.entity.kind === 'album' ? 'album' : 'track';
@@ -43,13 +43,11 @@ async function resolveMusic(ref: MediaReference): Promise<ResolvedMedia | null> 
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const data = await res.json();
-
     const items = type === 'album' ? data.albums?.items : data.tracks?.items;
-    if (!items?.length) return resolveMusicViaYouTube(ref);
+    if (!items?.length) return resolveYouTube(ref, 'music');
 
     const item = items[0];
     const isAlbum = type === 'album';
-
     return {
       referenceId: ref.id,
       type: 'music',
@@ -63,12 +61,8 @@ async function resolveMusic(ref: MediaReference): Promise<ResolvedMedia | null> 
     };
   } catch (err) {
     console.error('Spotify search failed:', err);
-    return resolveMusicViaYouTube(ref);
+    return resolveYouTube(ref, 'music');
   }
-}
-
-async function resolveMusicViaYouTube(ref: MediaReference): Promise<ResolvedMedia | null> {
-  return resolveYouTube(ref, 'music');
 }
 
 async function resolveYouTube(ref: MediaReference, forType: 'music' | 'film' = 'film'): Promise<ResolvedMedia | null> {
@@ -85,7 +79,7 @@ async function resolveYouTube(ref: MediaReference, forType: 'music' | 'film' = '
 
     return {
       referenceId: ref.id,
-      type: forType === 'music' ? 'music' : 'film',
+      type: forType,
       provider: 'youtube',
       title: ref.entity.title,
       creator: ref.entity.creator,
@@ -99,7 +93,6 @@ async function resolveYouTube(ref: MediaReference, forType: 'music' | 'film' = '
 }
 
 async function resolveImage(ref: MediaReference): Promise<ResolvedMedia | null> {
-  // Use Wikimedia Commons API for art/photos
   const query = `${ref.entity.title} ${ref.entity.creator}`;
   try {
     const res = await fetch(
@@ -133,14 +126,10 @@ async function resolveImage(ref: MediaReference): Promise<ResolvedMedia | null> 
 
 export async function resolveMedia(ref: MediaReference): Promise<ResolvedMedia | null> {
   switch (ref.type) {
-    case 'music':
-      return resolveMusic(ref);
-    case 'film':
-      return resolveYouTube(ref, 'film');
-    case 'visual_art':
-      return resolveImage(ref);
-    default:
-      return null;
+    case 'music': return resolveMusic(ref);
+    case 'film': return resolveYouTube(ref, 'film');
+    case 'visual_art': return resolveImage(ref);
+    default: return null;
   }
 }
 

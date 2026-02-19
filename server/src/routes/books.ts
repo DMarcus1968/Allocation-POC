@@ -6,16 +6,14 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { saveBook, getBooks, getBook, deleteBookRecord } from '../db/cache.js';
 import { DEMO_BOOK } from '../services/demo-book.js';
+import { parseEpub } from '../services/epub-parser.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'data', 'books');
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${randomUUID()}${ext}`);
-  },
+  filename: (_req, file, cb) => cb(null, `${randomUUID()}${path.extname(file.originalname)}`),
 });
 
 const upload = multer({
@@ -32,34 +30,60 @@ const upload = multer({
 
 const router = Router();
 
-// GET /api/books — list all books (includes demo book)
+// GET /api/books — list all books
 router.get('/', (_req: Request, res: Response) => {
   const uploadedBooks = getBooks();
   const demoEntry = {
     id: DEMO_BOOK.id,
     title: DEMO_BOOK.title,
     author: DEMO_BOOK.author,
-    file_name: '',
     isDemo: true,
   };
   res.json({ books: [demoEntry, ...uploadedBooks] });
 });
 
-// GET /api/books/demo/chapters — get demo book chapters
-router.get('/demo/chapters', (_req: Request, res: Response) => {
-  res.json({
-    id: DEMO_BOOK.id,
-    title: DEMO_BOOK.title,
-    author: DEMO_BOOK.author,
-    chapters: DEMO_BOOK.chapters,
-  });
+// GET /api/books/:id/chapters — get book chapters
+router.get('/:id/chapters', async (req: Request, res: Response) => {
+  const id = req.params.id as string;
+
+  // Demo book
+  if (id === DEMO_BOOK.id) {
+    res.json({
+      id: DEMO_BOOK.id,
+      title: DEMO_BOOK.title,
+      author: DEMO_BOOK.author,
+      chapters: DEMO_BOOK.chapters,
+    });
+    return;
+  }
+
+  // Uploaded book — parse EPUB
+  const book = getBook(id);
+  if (!book) {
+    res.status(404).json({ error: 'Book not found' });
+    return;
+  }
+
+  const filePath = path.join(UPLOADS_DIR, book.file_name);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: 'EPUB file not found on disk' });
+    return;
+  }
+
+  try {
+    const buffer = fs.readFileSync(filePath);
+    const parsed = await parseEpub(buffer, id as string);
+    res.json(parsed);
+  } catch (err) {
+    console.error('EPUB parse error:', err);
+    res.status(500).json({ error: 'Failed to parse EPUB' });
+  }
 });
 
 // POST /api/books — upload an EPUB
 router.post('/', (req: Request, res: Response) => {
-  upload.single('book')(req, res, (err: any) => {
+  upload.single('book')(req, res, async (err: any) => {
     if (err) {
-      console.error('Upload error:', err);
       res.status(400).json({ error: err.message || 'Upload failed' });
       return;
     }
@@ -68,49 +92,38 @@ router.post('/', (req: Request, res: Response) => {
       return;
     }
 
-    const { title, author } = req.body;
-    const bookId = randomUUID();
+    try {
+      const buffer = fs.readFileSync(req.file.path);
+      const bookId = randomUUID();
+      const parsed = await parseEpub(buffer, bookId);
 
-    saveBook(bookId, title || 'Untitled', author || 'Unknown', req.file.filename);
+      saveBook(bookId, parsed.title, parsed.author, req.file.filename, parsed.chapters.length);
 
-    res.json({
-      id: bookId,
-      title: title || 'Untitled',
-      author: author || 'Unknown',
-      fileName: req.file.filename,
-    });
+      res.json({
+        id: bookId,
+        title: parsed.title,
+        author: parsed.author,
+        chapterCount: parsed.chapters.length,
+      });
+    } catch (parseErr) {
+      console.error('EPUB parse error on upload:', parseErr);
+      // Still save with basic info
+      const bookId = randomUUID();
+      saveBook(bookId, req.body.title || 'Untitled', req.body.author || 'Unknown', req.file!.filename, 0);
+      res.json({ id: bookId, title: req.body.title || 'Untitled', author: req.body.author || 'Unknown' });
+    }
   });
 });
 
-// GET /api/books/:id/file — serve the EPUB file for the reader
-router.get('/:id/file', (req: Request, res: Response) => {
-  const books = getBooks() as any[];
-  const book = books.find((b: any) => b.id === req.params.id);
-  if (!book) {
-    res.status(404).json({ error: 'Book not found' });
-    return;
-  }
-  const filePath = path.join(UPLOADS_DIR, book.file_name);
-  if (!fs.existsSync(filePath)) {
-    res.status(404).json({ error: 'EPUB file not found on disk. Please re-upload the book.' });
-    return;
-  }
-  res.sendFile(filePath);
-});
-
-// DELETE /api/books/:id — remove a book and its file
+// DELETE /api/books/:id
 router.delete('/:id', (req: Request, res: Response) => {
-  const book = getBook(req.params.id);
+  const book = getBook(req.params.id as string);
   if (!book) {
     res.status(404).json({ error: 'Book not found' });
     return;
   }
-  // Remove file from disk
   const filePath = path.join(UPLOADS_DIR, book.file_name);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
-  // Remove DB records
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   deleteBookRecord(book.id);
   res.json({ ok: true });
 });

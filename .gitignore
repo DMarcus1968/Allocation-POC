@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
-*.local
-server/data/
-client/.vite/
+*.db
+*.sqlite
+uploads/
+.DS_Store

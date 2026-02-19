@@ -1,283 +1,308 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import ePub, { Book, Rendition } from 'epubjs';
-import { BookMeta, MediaReference, ResolvedMedia } from '../../types';
-import { analyzePassage, getBookFileUrl } from '../../services/api';
-import MediaCard from '../MediaCard/MediaCard';
-import MiniPlayer from '../MiniPlayer/MiniPlayer';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchBookChapters, analyzeChapter } from '../../api';
+import { BookData, MediaReference, ResolvedMedia } from '../../types';
+import InlinePlayer from '../InlinePlayer/InlinePlayer';
 import './Reader.css';
 
 interface Props {
-  book: BookMeta;
+  bookId: string;
   onBack: () => void;
 }
 
-export default function Reader({ book, onBack }: Props) {
-  const viewerRef = useRef<HTMLDivElement>(null);
-  const bookRef = useRef<Book | null>(null);
-  const renditionRef = useRef<Rendition | null>(null);
+interface ChapterAnnotations {
+  references: MediaReference[];
+  resolvedMedia: ResolvedMedia[];
+}
 
-  const [references, setReferences] = useState<MediaReference[]>([]);
-  const [resolvedMedia, setResolvedMedia] = useState<Map<string, ResolvedMedia>>(new Map());
-  const [selectedRef, setSelectedRef] = useState<MediaReference | null>(null);
-  const [activeMedia, setActiveMedia] = useState<ResolvedMedia | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+export default function Reader({ bookId, onBack }: Props) {
+  const [book, setBook] = useState<BookData | null>(null);
+  const [chapterIndex, setChapterIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [currentCfi, setCurrentCfi] = useState<string>('');
-  const [chapterTitle, setChapterTitle] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [annotations, setAnnotations] = useState<ChapterAnnotations | null>(null);
+  const [activeMedia, setActiveMedia] = useState<ResolvedMedia | null>(null);
+  const [tocOpen, setTocOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const annotationCache = useRef<Map<string, ChapterAnnotations>>(new Map());
 
-  // Load EPUB
+  // Load book
   useEffect(() => {
-    if (!viewerRef.current) return;
+    setLoading(true);
+    setError(null);
+    fetchBookChapters(bookId)
+      .then(setBook)
+      .catch(() => setError('Failed to load book'))
+      .finally(() => setLoading(false));
+  }, [bookId]);
 
-    const epubBook = ePub(getBookFileUrl(book.id));
-    bookRef.current = epubBook;
-
-    const rendition = epubBook.renderTo(viewerRef.current, {
-      width: '100%',
-      height: '100%',
-      spread: 'none',
-      flow: 'paginated',
-    });
-
-    renditionRef.current = rendition;
-
-    rendition.display().then(() => {
-      setLoading(false);
-    }).catch((err: any) => {
-      console.error('EPUB display failed:', err);
-      setLoading(false);
-      setLoadError('Could not open this EPUB. The file may be missing or corrupted — try uploading it again.');
-    });
-
-    // Catch book-level open errors (e.g. 404, bad zip)
-    epubBook.ready.catch((err: any) => {
-      console.error('EPUB open failed:', err);
-      setLoading(false);
-      setLoadError('Could not open this EPUB. The file may be missing or corrupted — try uploading it again.');
-    });
-
-    // Track location changes for analysis
-    rendition.on('relocated', (location: any) => {
-      const cfi = location.start?.cfi;
-      if (cfi) setCurrentCfi(cfi);
-    });
-
-    // Track chapter changes
-    rendition.on('rendered', (section: any) => {
-      const nav = epubBook.navigation;
-      if (nav) {
-        const tocItem = nav.toc.find(
-          (item: any) => item.href && section.href?.includes(item.href)
-        );
-        if (tocItem) setChapterTitle(tocItem.label?.trim() || '');
-      }
-    });
-
-    // Keyboard navigation
-    rendition.on('keyup', (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') rendition.prev();
-      if (e.key === 'ArrowRight') rendition.next();
-    });
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') rendition.prev();
-      if (e.key === 'ArrowRight') rendition.next();
-    };
-    document.addEventListener('keyup', handleKeyUp);
-
-    return () => {
-      document.removeEventListener('keyup', handleKeyUp);
-      epubBook.destroy();
-    };
-  }, [book.id]);
-
-  // Analyze visible text when page changes
-  const analyzeCurrentPage = useCallback(async () => {
-    const rendition = renditionRef.current;
-    if (!rendition || !currentCfi || analyzing) return;
+  // Analyze chapter for references
+  const runAnalysis = useCallback(async (book: BookData, idx: number) => {
+    const cacheKey = `${book.id}-${idx}`;
+    if (annotationCache.current.has(cacheKey)) {
+      setAnnotations(annotationCache.current.get(cacheKey)!);
+      return;
+    }
 
     setAnalyzing(true);
     try {
-      // Get visible text from the current page
-      const contents = rendition.getContents();
-      let visibleText = '';
-      for (const content of contents as unknown as any[]) {
-        const doc = content.document;
-        if (doc?.body) {
-          visibleText = doc.body.innerText || doc.body.textContent || '';
-        }
-      }
+      const chapter = book.chapters[idx];
+      // Extract plain text from HTML for analysis
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = chapter.html;
+      const text = tempDiv.textContent || '';
 
-      if (!visibleText.trim()) {
-        setAnalyzing(false);
-        return;
-      }
-
-      const result = await analyzePassage(book.id, currentCfi, visibleText);
-
-      setReferences(result.references);
-      setNotice(result.notice || null);
-
-      // Merge resolved media into our map
-      const newMap = new Map(resolvedMedia);
-      for (const media of result.resolvedMedia) {
-        newMap.set(media.referenceId, media);
-      }
-      setResolvedMedia(newMap);
-
-      // Highlight references in the text
-      highlightReferences(result.references);
-    } catch (err) {
-      console.error('Analysis failed:', err);
+      const result = await analyzeChapter(book.id, idx, text);
+      const ann = { references: result.references, resolvedMedia: result.resolvedMedia || [] };
+      annotationCache.current.set(cacheKey, ann);
+      setAnnotations(ann);
+    } catch {
+      // Analysis failure is non-fatal — just show the text without highlights
+      setAnnotations(null);
     } finally {
       setAnalyzing(false);
     }
-  }, [book.id, currentCfi, analyzing, resolvedMedia]);
+  }, []);
 
-  // Debounced analysis on page change
+  // When chapter changes, analyze it
   useEffect(() => {
-    if (!currentCfi) return;
-    const timer = setTimeout(analyzeCurrentPage, 500);
-    return () => clearTimeout(timer);
-  }, [currentCfi]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!book) return;
+    setAnnotations(null);
+    setActiveMedia(null);
+    runAnalysis(book, chapterIndex);
+  }, [book, chapterIndex, runAnalysis]);
 
-  const highlightReferences = (refs: MediaReference[]) => {
-    const rendition = renditionRef.current;
-    if (!rendition) return;
+  // Inject highlights into chapter HTML
+  useEffect(() => {
+    if (!contentRef.current || !book) return;
 
-    // For now, we mark references inline by finding their text spans
-    // A full implementation would use CFI ranges for precise highlighting
-    const contents = rendition.getContents();
-    for (const content of contents as unknown as any[]) {
-      const doc = content.document as Document;
-      if (!doc?.body) continue;
+    const chapter = book.chapters[chapterIndex];
+    if (!chapter) return;
 
-      for (const ref of refs) {
-        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-        let node: Node | null;
-        while ((node = walker.nextNode())) {
-          const text = node.textContent || '';
-          const idx = text.indexOf(ref.textSpan);
-          if (idx === -1) continue;
+    // Start with raw chapter HTML
+    let html = chapter.html;
 
-          const range = doc.createRange();
-          range.setStart(node, idx);
-          range.setEnd(node, idx + ref.textSpan.length);
-
-          const mark = doc.createElement('mark');
-          mark.className = `footnote-mark footnote-mark--${ref.type}`;
-          mark.dataset.refId = ref.id;
-          mark.title = `${ref.entity.title} — ${ref.entity.creator}`;
-          mark.addEventListener('click', () => {
-            setSelectedRef(ref);
-            const media = resolvedMedia.get(ref.id);
-            if (media) setActiveMedia(media);
-          });
-
-          range.surroundContents(mark);
-          break; // Only highlight first occurrence
-        }
-      }
+    // If we have annotations, inject highlight marks
+    if (annotations && annotations.references.length > 0) {
+      html = injectHighlights(html, annotations.references, annotations.resolvedMedia);
     }
-  };
 
-  const handlePrev = () => renditionRef.current?.prev();
-  const handleNext = () => renditionRef.current?.next();
+    contentRef.current.innerHTML = html;
 
-  const handleRefClick = (ref: MediaReference) => {
-    setSelectedRef(ref);
-    const media = resolvedMedia.get(ref.id);
-    if (media) setActiveMedia(media);
-  };
+    // Attach click handlers to highlight marks
+    const marks = contentRef.current.querySelectorAll('[data-ref-id]');
+    marks.forEach(mark => {
+      mark.addEventListener('click', () => {
+        const refId = mark.getAttribute('data-ref-id');
+        const media = annotations?.resolvedMedia.find(m => m.referenceId === refId);
+        if (media) {
+          setActiveMedia(prev => prev?.referenceId === media.referenceId ? null : media);
+          // Scroll the mark into view
+          mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+    });
+
+    // Scroll to top on chapter change
+    contentRef.current.scrollTop = 0;
+  }, [book, chapterIndex, annotations]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (!book) return;
+      if (e.key === 'ArrowLeft' && chapterIndex > 0) {
+        setChapterIndex(i => i - 1);
+      } else if (e.key === 'ArrowRight' && chapterIndex < book.chapters.length - 1) {
+        setChapterIndex(i => i + 1);
+      } else if (e.key === 'Escape') {
+        if (activeMedia) setActiveMedia(null);
+        else if (tocOpen) setTocOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [book, chapterIndex, activeMedia, tocOpen]);
+
+  if (loading) {
+    return (
+      <div className="reader-loading">
+        <div className="spinner" />
+        <p>Loading book...</p>
+      </div>
+    );
+  }
+
+  if (error || !book) {
+    return (
+      <div className="reader-error">
+        <p>{error || 'Something went wrong'}</p>
+        <button onClick={onBack}>Back to Library</button>
+      </div>
+    );
+  }
+
+  const chapter = book.chapters[chapterIndex];
+  const totalChapters = book.chapters.length;
+  const refCount = annotations?.references.length || 0;
 
   return (
     <div className="reader">
-      <div className="reader-toolbar">
-        <button className="reader-back" onClick={onBack}>
-          &larr; Library
-        </button>
-        <div className="reader-chapter">{chapterTitle}</div>
-        <div className="reader-status">
-          {analyzing && <span className="analyzing-badge">Analyzing...</span>}
-          {references.length > 0 && (
-            <span className="ref-count">{references.length} media found</span>
-          )}
-          {notice && !analyzing && references.length === 0 && (
-            <span className="reader-notice">{notice}</span>
-          )}
-        </div>
-      </div>
-
-      <div className="reader-content">
-        <button className="reader-nav reader-nav--prev" onClick={handlePrev}>
-          &#8249;
+      {/* Top bar */}
+      <header className="reader-bar">
+        <button className="reader-bar-btn" onClick={onBack} title="Back to library">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
         </button>
 
-        <div className="reader-viewer-wrapper">
-          {/* epub.js owns this div — no React children inside it */}
-          <div className="reader-viewer" ref={viewerRef} />
-
-          {loading && (
-            <div className="reader-loading">Loading book...</div>
-          )}
-          {loadError && (
-            <div className="reader-error">
-              <p>{loadError}</p>
-              <button className="reader-back" onClick={onBack}>&larr; Back to Library</button>
-            </div>
-          )}
+        <div className="reader-bar-center">
+          <span className="reader-bar-title">{book.title}</span>
+          <span className="reader-bar-chapter">{chapter?.title}</span>
         </div>
 
-        <button className="reader-nav reader-nav--next" onClick={handleNext}>
-          &#8250;
+        <button
+          className="reader-bar-btn"
+          onClick={() => setTocOpen(!tocOpen)}
+          title="Table of contents"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="15" y2="12" />
+            <line x1="3" y1="18" x2="18" y2="18" />
+          </svg>
         </button>
-      </div>
+      </header>
 
-      {/* Sidebar: media references found on this page */}
-      {references.length > 0 && (
-        <div className="reader-sidebar">
-          <h3 className="sidebar-title">Media on this page</h3>
-          <div className="sidebar-refs">
-            {references.map(ref => (
+      {/* TOC sidebar */}
+      {tocOpen && (
+        <div className="reader-toc-overlay" onClick={() => setTocOpen(false)}>
+          <nav className="reader-toc" onClick={e => e.stopPropagation()}>
+            <h3>Contents</h3>
+            {book.chapters.map((ch, i) => (
               <button
-                key={ref.id}
-                className={`sidebar-ref sidebar-ref--${ref.type} ${
-                  selectedRef?.id === ref.id ? 'selected' : ''
-                }`}
-                onClick={() => handleRefClick(ref)}
+                key={i}
+                className={`reader-toc-item ${i === chapterIndex ? 'active' : ''}`}
+                onClick={() => { setChapterIndex(i); setTocOpen(false); }}
               >
-                <span className="ref-type-icon">
-                  {ref.type === 'music' ? '♪' : ref.type === 'film' ? '▶' : '🖼'}
-                </span>
-                <div className="ref-details">
-                  <span className="ref-entity-title">{ref.entity.title}</span>
-                  <span className="ref-entity-creator">{ref.entity.creator}</span>
-                </div>
+                {ch.title}
               </button>
             ))}
-          </div>
+          </nav>
         </div>
       )}
 
-      {/* Media card overlay */}
-      {selectedRef && (
-        <MediaCard
-          reference={selectedRef}
-          media={resolvedMedia.get(selectedRef.id) || null}
-          onClose={() => setSelectedRef(null)}
-          onPlay={(media) => setActiveMedia(media)}
-        />
+      {/* Reading area */}
+      <main className="reader-main">
+        <article className="reader-content" ref={contentRef} />
+
+        {/* Analyzing indicator */}
+        {analyzing && (
+          <div className="reader-analyzing">
+            <div className="analyzing-dot" />
+            Discovering references...
+          </div>
+        )}
+
+        {/* Reference count badge */}
+        {!analyzing && refCount > 0 && (
+          <div className="reader-ref-count">
+            {refCount} reference{refCount !== 1 ? 's' : ''} found
+          </div>
+        )}
+      </main>
+
+      {/* Inline media player */}
+      {activeMedia && (
+        <InlinePlayer media={activeMedia} onClose={() => setActiveMedia(null)} />
       )}
 
-      {/* Persistent mini-player */}
-      {activeMedia && (
-        <MiniPlayer
-          media={activeMedia}
-          onClose={() => setActiveMedia(null)}
-        />
-      )}
+      {/* Bottom navigation */}
+      <footer className="reader-nav">
+        <button
+          className="reader-nav-btn"
+          disabled={chapterIndex === 0}
+          onClick={() => setChapterIndex(i => i - 1)}
+        >
+          Previous
+        </button>
+
+        <div className="reader-nav-dots">
+          {book.chapters.map((_, i) => (
+            <button
+              key={i}
+              className={`reader-nav-dot ${i === chapterIndex ? 'active' : ''}`}
+              onClick={() => setChapterIndex(i)}
+              title={book.chapters[i].title}
+            />
+          ))}
+        </div>
+
+        <button
+          className="reader-nav-btn"
+          disabled={chapterIndex === totalChapters - 1}
+          onClick={() => setChapterIndex(i => i + 1)}
+        >
+          Next
+        </button>
+      </footer>
     </div>
   );
+}
+
+/**
+ * Inject highlight <mark> elements into chapter HTML for each reference.
+ * We do this as string manipulation before setting innerHTML,
+ * which is simpler and more reliable than post-render DOM walking.
+ */
+function injectHighlights(
+  html: string,
+  references: MediaReference[],
+  resolvedMedia: ResolvedMedia[]
+): string {
+  // Sort references by text span length (longest first) to avoid partial matches
+  const sorted = [...references].sort((a, b) => b.textSpan.length - a.textSpan.length);
+  const mediaMap = new Map(resolvedMedia.map(m => [m.referenceId, m]));
+
+  for (const ref of sorted) {
+    const media = mediaMap.get(ref.id);
+    const typeClass = `fn-mark--${ref.type}`;
+    const hasMedia = media ? 'fn-mark--has-media' : '';
+    const icon = getTypeIcon(ref.type);
+
+    // Only replace within text content (not inside HTML tags)
+    // Use a regex that matches the text span but not inside < >
+    const escaped = escapeRegex(ref.textSpan);
+    const regex = new RegExp(`(?<=>)([^<]*?)(${escaped})([^<]*?)(?=<)`, 'g');
+
+    html = html.replace(regex, (match, before, span, after) => {
+      return `>${before}<mark class="fn-mark ${typeClass} ${hasMedia}" data-ref-id="${ref.id}">${span}<span class="fn-mark-icon">${icon}</span></mark>${after}<`;
+    });
+
+    // Also try to match text that starts a text node (after a tag)
+    // Fallback: simple replace for <strong>text</strong> patterns
+    if (!html.includes(`data-ref-id="${ref.id}"`)) {
+      // Try matching within <strong> or <em> tags
+      const simpleRegex = new RegExp(`(<(?:strong|em|b|i)[^>]*>)(${escaped})(</(?:strong|em|b|i)>)`, 'gi');
+      html = html.replace(simpleRegex, (_, open, span, close) => {
+        return `${open}<mark class="fn-mark ${typeClass} ${hasMedia}" data-ref-id="${ref.id}">${span}<span class="fn-mark-icon">${icon}</span></mark>${close}`;
+      });
+    }
+  }
+
+  return html;
+}
+
+function getTypeIcon(type: string): string {
+  switch (type) {
+    case 'music': return '\u266B';
+    case 'visual_art': return '\u25CF';
+    case 'film': return '\u25B6';
+    default: return '\u2022';
+  }
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

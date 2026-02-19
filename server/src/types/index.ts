@@ -35,10 +35,18 @@ export interface ResolvedMedia {
 
 export interface AnalyzeRequest {
   bookId: string;
-  cfiRange: string;
+  chapterIndex: number;
   text: string;
 }
 
-export interface AnalyzeResponse {
-  references: MediaReference[];
+export interface BookChapter {
+  title: string;
+  html: string;
+}
+
+export interface BookMeta {
+  id: string;
+  title: string;
+  author: string;
+  chapters: BookChapter[];
 }

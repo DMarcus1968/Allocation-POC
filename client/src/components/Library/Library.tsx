@@ -1,58 +1,50 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { BookMeta } from '../../types';
-import { fetchBooks, uploadBook, deleteBook } from '../../services/api';
+import { fetchBooks, uploadBook, deleteBook } from '../../api';
+import { BookInfo } from '../../types';
 import './Library.css';
 
 interface Props {
-  onSelectBook: (book: BookMeta) => void;
+  onSelectBook: (id: string) => void;
 }
 
 export default function Library({ onSelectBook }: Props) {
-  const [books, setBooks] = useState<BookMeta[]>([]);
+  const [books, setBooks] = useState<BookInfo[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchBooks().then(setBooks).catch(() => setError('Failed to load books'));
+  const loadBooks = useCallback(async () => {
+    try {
+      const list = await fetchBooks();
+      setBooks(list);
+    } catch {
+      setError('Failed to load library');
+    }
   }, []);
 
+  useEffect(() => { loadBooks(); }, [loadBooks]);
+
   const onDrop = useCallback(async (files: File[]) => {
-    console.log('[FootNote] onDrop fired, files:', files.length, files.map(f => f.name));
-    setError(`Drop received: ${files.length} file(s) — ${files.map(f => f.name).join(', ')}`);
-
-    if (files.length === 0) return;
-
-    // Validate extension client-side (server also validates)
-    const epubs = files.filter(f => f.name.toLowerCase().endsWith('.epub'));
-    if (epubs.length === 0) {
-      setError('Only .epub files are supported.');
-      return;
-    }
+    const file = files[0];
+    if (!file) return;
 
     setUploading(true);
     setError(null);
     try {
-      for (const file of epubs) {
-        const name = file.name.replace(/\.epub$/i, '');
-        console.log('[FootNote] Uploading:', name);
-        const book = await uploadBook(file, name);
-        console.log('[FootNote] Upload success:', book);
-        setBooks(prev => [book, ...prev]);
-      }
-    } catch (err) {
-      console.error('[FootNote] Upload error:', err);
-      setError('Failed to upload book. Make sure it is a valid EPUB file.');
+      await uploadBook(file);
+      await loadBooks();
+    } catch (err: any) {
+      setError(err.message || 'Upload failed');
     } finally {
       setUploading(false);
     }
-  }, []);
+  }, [loadBooks]);
 
   const handleDelete = async (e: React.MouseEvent, bookId: string) => {
     e.stopPropagation();
     try {
       await deleteBook(bookId);
-      setBooks(prev => prev.filter(b => b.id !== bookId));
+      await loadBooks();
     } catch {
       setError('Failed to delete book');
     }
@@ -60,90 +52,101 @@ export default function Library({ onSelectBook }: Props) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    multiple: true,
+    accept: { 'application/epub+zip': ['.epub'] },
+    multiple: false,
+    noClick: books.length > 0,
   });
 
   return (
     <div className="library">
-      <div className="library-header">
-        <h1>Your Library</h1>
-        <p className="library-subtitle">
-          Upload an EPUB to start reading with inline media (v3 — port 4000)
-        </p>
-      </div>
+      <header className="library-header">
+        <h1 className="library-logo">FootNote</h1>
+        <p className="library-tagline">Drop a book. Discover what's inside.</p>
+      </header>
 
       <div
         {...getRootProps()}
-        className={`library-dropzone ${isDragActive ? 'active' : ''} ${uploading ? 'uploading' : ''}`}
+        className={`library-content ${isDragActive ? 'drag-active' : ''}`}
       >
-        <input {...getInputProps({ accept: '.epub' })} />
-        {uploading ? (
-          <p>Uploading...</p>
-        ) : isDragActive ? (
-          <p>Drop your EPUB here</p>
-        ) : (
-          <div className="dropzone-content">
-            <span className="dropzone-icon">+</span>
-            <p>Drag & drop an EPUB here, or click to browse</p>
+        <input {...getInputProps()} />
+
+        {isDragActive && (
+          <div className="drop-overlay">
+            <div className="drop-overlay-content">
+              <div className="drop-icon">+</div>
+              <p>Drop your EPUB here</p>
+            </div>
+          </div>
+        )}
+
+        {books.length === 0 && !uploading && (
+          <div className="library-empty">
+            <div className="empty-icon">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                <line x1="12" y1="8" x2="12" y2="14" />
+                <line x1="9" y1="11" x2="15" y2="11" />
+              </svg>
+            </div>
+            <p className="empty-title">Drop an EPUB to get started</p>
+            <p className="empty-subtitle">or click anywhere to browse</p>
+          </div>
+        )}
+
+        {uploading && (
+          <div className="library-uploading">
+            <div className="spinner" />
+            <p>Parsing your book...</p>
+          </div>
+        )}
+
+        {error && <div className="library-error">{error}</div>}
+
+        {books.length > 0 && (
+          <div className="book-grid">
+            {books.map(book => (
+              <button
+                key={book.id}
+                className={`book-card ${book.isDemo ? 'book-card--demo' : ''}`}
+                onClick={() => onSelectBook(book.id)}
+              >
+                <div className="book-card-spine" />
+                <div className="book-card-cover">
+                  <span className="book-card-title">{book.title}</span>
+                  <span className="book-card-author">{book.author}</span>
+                  {book.isDemo && <span className="book-card-badge">Demo</span>}
+                </div>
+                {!book.isDemo && (
+                  <button
+                    className="book-card-delete"
+                    onClick={(e) => handleDelete(e, book.id)}
+                    title="Remove book"
+                  >
+                    &times;
+                  </button>
+                )}
+              </button>
+            ))}
+
+            <label className="book-card book-card--add">
+              <input
+                type="file"
+                accept=".epub"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onDrop([file]);
+                }}
+              />
+              <div className="book-card-cover book-card-cover--add">
+                <span className="add-icon">+</span>
+                <span className="book-card-title">Add Book</span>
+              </div>
+            </label>
           </div>
         )}
       </div>
-
-      {error && <p className="library-error">{error}</p>}
-
-      {books.length > 0 && (
-        <div className="library-grid">
-          {books.map(book => (
-            <div
-              key={book.id}
-              className={`book-card ${book.isDemo ? 'book-card--demo' : ''}`}
-              onClick={() => onSelectBook(book)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && onSelectBook(book)}
-            >
-              {!book.isDemo && (
-                <button
-                  className="book-delete"
-                  onClick={(e) => handleDelete(e, book.id)}
-                  title="Remove from library"
-                >
-                  &times;
-                </button>
-              )}
-              <div className="book-cover">
-                {book.coverUrl ? (
-                  <img src={book.coverUrl} alt={book.title} />
-                ) : (
-                  <div className={`book-cover-placeholder ${book.isDemo ? 'demo-cover' : ''}`}>
-                    {book.isDemo ? (
-                      <div className="demo-cover-content">
-                        <span className="demo-cover-icon">♪</span>
-                        <span className="demo-cover-label">DEMO</span>
-                      </div>
-                    ) : (
-                      <span>{(book.title || '?')[0]}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="book-info">
-                <h3 className="book-title">{book.title || 'Untitled'}</h3>
-                <p className="book-author">{book.author}</p>
-                {book.isDemo && (
-                  <p className="book-demo-tag">Try it out &rarr;</p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {books.length === 0 && !error && (
-        <div className="library-empty">
-          <p>No books yet. Upload an EPUB to get started!</p>
-        </div>
-      )}
     </div>
   );
 }

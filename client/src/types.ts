@@ -24,41 +24,36 @@ export interface ResolvedMedia {
   title: string;
   creator: string;
   thumbnailUrl?: string;
-  // Spotify
   spotifyTrackId?: string;
   previewUrl?: string;
   spotifyUri?: string;
-  // YouTube
   youtubeVideoId?: string;
-  // Image
   imageUrl?: string;
   imageSource?: string;
   imageAttribution?: string;
 }
 
-export interface BookMeta {
-  id: string;
-  title: string;
-  author: string;
-  coverUrl?: string;
-  fileName?: string;
-  isDemo?: boolean;
-}
-
-export interface DemoChapter {
+export interface BookChapter {
   title: string;
   html: string;
 }
 
-export interface DemoBookData {
+export interface BookInfo {
   id: string;
   title: string;
   author: string;
-  chapters: DemoChapter[];
+  isDemo?: boolean;
 }
 
-export interface PageAnalysis {
-  bookId: string;
-  cfiRange: string;
+export interface BookData {
+  id: string;
+  title: string;
+  author: string;
+  chapters: BookChapter[];
+}
+
+export interface AnalyzeResult {
   references: MediaReference[];
+  resolvedMedia: ResolvedMedia[];
+  notice?: string;
 }

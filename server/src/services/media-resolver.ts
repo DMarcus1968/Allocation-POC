@@ -100,11 +100,11 @@ const FREE_SEARCH_INSTANCES = [
   { type: 'invidious' as const, url: 'https://vid.puffyan.us' },
 ];
 
-async function fetchWithTimeout(url: string, timeoutMs = 5000): Promise<Response> {
+async function fetchWithTimeout(url: string, timeoutMs = 5000, headers?: Record<string, string>): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, { signal: controller.signal, headers });
   } finally {
     clearTimeout(timer);
   }
@@ -113,6 +113,36 @@ async function fetchWithTimeout(url: string, timeoutMs = 5000): Promise<Response
 async function resolveYouTubeFree(ref: MediaReference, forType: 'music' | 'film' = 'film'): Promise<ResolvedMedia | null> {
   const query = `${ref.entity.title} ${ref.entity.creator}`;
 
+  // Strategy 1: Scrape YouTube search results page directly (most reliable)
+  try {
+    const res = await fetchWithTimeout(
+      `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
+      8000,
+      { 'Accept-Language': 'en-US,en;q=0.9' }
+    );
+    if (res.ok) {
+      const html = await res.text();
+      // YouTube embeds video data as JSON in the page; extract the first videoId
+      const match = html.match(/"videoId":"([\w-]{11})"/);
+      if (match) {
+        const videoId = match[1];
+        console.log(`  Resolved "${ref.entity.title}" via YouTube scrape -> ${videoId}`);
+        return {
+          referenceId: ref.id,
+          type: forType,
+          provider: 'youtube',
+          title: ref.entity.title,
+          creator: ref.entity.creator,
+          thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+          youtubeVideoId: videoId,
+        };
+      }
+    }
+  } catch (err) {
+    console.log(`  YouTube scrape failed for "${ref.entity.title}", trying Piped/Invidious...`);
+  }
+
+  // Strategy 2: Try Piped/Invidious APIs as backup
   for (const instance of FREE_SEARCH_INSTANCES) {
     try {
       if (instance.type === 'piped') {

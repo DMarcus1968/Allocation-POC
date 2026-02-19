@@ -45,7 +45,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     for (const ref of references) {
       const cached = getCachedMedia(ref.id);
-      if (cached) {
+      if (cached && cached.provider !== 'youtube-search') {
         resolvedMedia.push(cached);
       } else {
         unresolvedRefs.push(ref);

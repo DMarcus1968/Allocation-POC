@@ -34,10 +34,18 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    // Skip trivially short chapters (cover pages, front matter images, etc.)
+    const trimmedText = text.trim();
+    if (trimmedText.length < 100) {
+      console.log(`  Chapter ${chapterIndex}: skipped (only ${trimmedText.length} chars — likely front matter)`);
+      res.json({ references: [], resolvedMedia: [] });
+      return;
+    }
+
     let references = getCachedAnalysis(bookId, chapterIndex);
     if (!references) {
-      console.log(`  Analyzing chapter ${chapterIndex} (${text.length} chars)...`);
-      references = await analyzeText(text);
+      console.log(`  Analyzing chapter ${chapterIndex} (${trimmedText.length} chars)...`);
+      references = await analyzeText(trimmedText);
       setCachedAnalysis(bookId, chapterIndex, references);
       console.log(`  Chapter ${chapterIndex}: ${references.length} references found`);
       for (const ref of references) {

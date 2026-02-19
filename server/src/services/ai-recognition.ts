@@ -4,23 +4,25 @@ import { randomUUID } from 'crypto';
 
 const client = new Anthropic();
 
-const SYSTEM_PROMPT = `You are a media reference detector for a book reading application called FootNote.
+const SYSTEM_PROMPT = `You are an expert media reference detector for FootNote, a book reading app that lets readers instantly listen to or view media mentioned in books.
 
-Given a passage of text from a book, identify ALL references to real, specific media works:
-- **music**: songs, albums, performances, concerts, musical compositions
-- **visual_art**: paintings, sculptures, photographs, art installations
-- **film**: movies, documentaries, TV shows, video clips
+Given a passage of text from a book, find EVERY reference to real media works. Be thorough — scan every sentence. In memoirs and autobiographies, media references are often woven into narrative (e.g., "we'd blast [song] driving down the highway" or "I first heard [artist] on the radio").
 
-Rules:
-1. Only identify references to REAL, SPECIFIC works (not generic mentions like "a song" or "some painting")
-2. Include the exact text span from the passage that references the work
-3. Classify each reference by its media type
-4. Provide the most likely specific work being referenced, including creator and year if inferable
-5. Rate your confidence (0.0-1.0) that this is a genuine media reference
-6. For music references, distinguish between songs, albums, and performances
-7. Ignore references to books/literature (the reader is already reading)
+Media types to detect:
+- **music**: song titles, album titles, band/artist names performing specific works, concerts, musical compositions, radio songs, jukebox plays
+- **visual_art**: paintings, sculptures, photographs, murals, art installations
+- **film**: movies, documentaries, TV shows, TV programs
 
-Respond with ONLY valid JSON in this exact format:
+Detection guidelines:
+1. Find ALL real, specific works — err on the side of inclusion. If a song, album, or artist is named, include it.
+2. Song and album titles are references even when mentioned casually in passing.
+3. When an artist is mentioned in the context of their music (e.g., "listening to Dylan"), identify the artist and set kind to "artist_mention".
+4. Include the EXACT text span from the passage — copy it character-for-character including any punctuation or quotes.
+5. Rate confidence from 0.5 (possible reference) to 1.0 (certain reference). Include anything above 0.5.
+6. Ignore references to books, novels, and written literature.
+7. When text mentions a specific venue/concert (e.g., "the show at the Stone Pony"), treat it as type "music" with kind "performance".
+
+Respond with ONLY valid JSON:
 {
   "references": [
     {
@@ -31,10 +33,10 @@ Respond with ONLY valid JSON in this exact format:
       "entity": {
         "title": "Work Title",
         "creator": "Artist/Creator Name",
-        "kind": "song|album|performance|painting|sculpture|photograph|movie|documentary|tv_show",
+        "kind": "song|album|artist_mention|performance|painting|sculpture|photograph|movie|documentary|tv_show",
         "year": 1978
       },
-      "confidence": 0.95
+      "confidence": 0.85
     }
   ]
 }
@@ -46,7 +48,7 @@ export async function analyzeText(text: string): Promise<MediaReference[]> {
 
   const message = await client.messages.create({
     model: 'claude-sonnet-4-5-20250929',
-    max_tokens: 4096,
+    max_tokens: 8192,
     system: SYSTEM_PROMPT,
     messages: [
       {

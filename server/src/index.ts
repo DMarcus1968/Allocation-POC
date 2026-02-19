@@ -34,7 +34,8 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Serve client dist (with no-cache headers to prevent stale builds)
-const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
+const clientDist = path.resolve(__dirname, '..', '..', 'client', 'dist');
+console.log('Client dist path:', clientDist, 'exists:', fs.existsSync(clientDist));
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist, {
     setHeaders: (res) => {

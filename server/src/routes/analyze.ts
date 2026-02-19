@@ -36,8 +36,15 @@ router.post('/', async (req: Request, res: Response) => {
 
     let references = getCachedAnalysis(bookId, chapterIndex);
     if (!references) {
+      console.log(`  Analyzing chapter ${chapterIndex} (${text.length} chars)...`);
       references = await analyzeText(text);
       setCachedAnalysis(bookId, chapterIndex, references);
+      console.log(`  Chapter ${chapterIndex}: ${references.length} references found`);
+      for (const ref of references) {
+        console.log(`    - "${ref.textSpan}" (${ref.type}, ${ref.entity.title} by ${ref.entity.creator})`);
+      }
+    } else {
+      console.log(`  Chapter ${chapterIndex}: ${references.length} references (cached)`);
     }
 
     const resolvedMedia: ResolvedMedia[] = [];

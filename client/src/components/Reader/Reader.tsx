@@ -83,15 +83,14 @@ export default function Reader({ bookId, onBack }: Props) {
     const chapter = book.chapters[chapterIndex];
     if (!chapter) return;
 
-    // Start with raw chapter HTML
-    let html = chapter.html;
+    // Set raw chapter HTML first
+    contentRef.current.innerHTML = chapter.html;
 
-    // If we have annotations, inject highlight marks
+    // If we have annotations, inject highlights by walking the DOM
+    // This handles HTML entities, curly quotes, and text split across elements
     if (annotations && annotations.references.length > 0) {
-      html = injectHighlights(html, annotations.references, annotations.resolvedMedia);
+      injectHighlightsDOM(contentRef.current, annotations.references, annotations.resolvedMedia);
     }
-
-    contentRef.current.innerHTML = html;
 
     // Attach click handlers to highlight marks
     const marks = contentRef.current.querySelectorAll('[data-ref-id]');
@@ -263,46 +262,109 @@ export default function Reader({ bookId, onBack }: Props) {
 }
 
 /**
- * Inject highlight <mark> elements into chapter HTML for each reference.
- * We do this as string manipulation before setting innerHTML,
- * which is simpler and more reliable than post-render DOM walking.
+ * Inject highlight <mark> elements by walking DOM text nodes.
+ * This handles HTML entities, curly quotes, and text split across elements
+ * far more reliably than regex on raw HTML strings.
  */
-function injectHighlights(
-  html: string,
+function injectHighlightsDOM(
+  container: HTMLElement,
   references: MediaReference[],
   resolvedMedia: ResolvedMedia[]
-): string {
-  // Sort references by text span length (longest first) to avoid partial matches
-  const sorted = [...references].sort((a, b) => b.textSpan.length - a.textSpan.length);
+) {
   const mediaMap = new Map(resolvedMedia.map(m => [m.referenceId, m]));
+  // Sort by text span length (longest first) to avoid partial matches
+  const sorted = [...references].sort((a, b) => b.textSpan.length - a.textSpan.length);
 
   for (const ref of sorted) {
     const media = mediaMap.get(ref.id);
-    const typeClass = `fn-mark--${ref.type}`;
-    const hasMedia = media ? 'fn-mark--has-media' : '';
-    const icon = getTypeIcon(ref.type);
+    const range = findTextRange(container, ref.textSpan);
+    if (!range) continue;
 
-    // Only replace within text content (not inside HTML tags)
-    // Use a regex that matches the text span but not inside < >
-    const escaped = escapeRegex(ref.textSpan);
-    const regex = new RegExp(`(?<=>)([^<]*?)(${escaped})([^<]*?)(?=<)`, 'g');
+    const mark = document.createElement('mark');
+    mark.className = `fn-mark fn-mark--${ref.type} ${media ? 'fn-mark--has-media' : ''}`;
+    mark.setAttribute('data-ref-id', ref.id);
 
-    html = html.replace(regex, (_match, before, span, after) => {
-      return `${before}<mark class="fn-mark ${typeClass} ${hasMedia}" data-ref-id="${ref.id}">${span}<span class="fn-mark-icon">${icon}</span></mark>${after}`;
-    });
+    try {
+      range.surroundContents(mark);
+    } catch {
+      // Range spans multiple elements — extract and re-insert
+      const fragment = range.extractContents();
+      mark.appendChild(fragment);
+      range.insertNode(mark);
+    }
 
-    // Also try to match text that starts a text node (after a tag)
-    // Fallback: simple replace for <strong>text</strong> patterns
-    if (!html.includes(`data-ref-id="${ref.id}"`)) {
-      // Try matching within <strong> or <em> tags
-      const simpleRegex = new RegExp(`(<(?:strong|em|b|i)[^>]*>)(${escaped})(</(?:strong|em|b|i)>)`, 'gi');
-      html = html.replace(simpleRegex, (_, open, span, close) => {
-        return `${open}<mark class="fn-mark ${typeClass} ${hasMedia}" data-ref-id="${ref.id}">${span}<span class="fn-mark-icon">${icon}</span></mark>${close}`;
-      });
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'fn-mark-icon';
+    iconSpan.textContent = getTypeIcon(ref.type);
+    mark.appendChild(iconSpan);
+  }
+}
+
+/** Normalize curly quotes, smart quotes, and dashes for fuzzy matching */
+function normalizeForMatch(str: string): string {
+  return str
+    .replace(/[\u2018\u2019\u201A\u201B\u0060\u00B4]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-');
+}
+
+/** Find a text string in the DOM and return a Range covering it */
+function findTextRange(container: HTMLElement, searchText: string): Range | null {
+  // Collect all text nodes
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let node: Text | null;
+  while ((node = walker.nextNode() as Text | null)) {
+    textNodes.push(node);
+  }
+
+  // Build concatenated text with position mapping
+  let fullText = '';
+  const segments: { node: Text; start: number; length: number }[] = [];
+  for (const tn of textNodes) {
+    const content = tn.textContent || '';
+    segments.push({ node: tn, start: fullText.length, length: content.length });
+    fullText += content;
+  }
+
+  // Try exact match first, then normalized match
+  const normalizedFull = normalizeForMatch(fullText);
+  const normalizedSearch = normalizeForMatch(searchText);
+  let idx = fullText.indexOf(searchText);
+  if (idx === -1) idx = normalizedFull.indexOf(normalizedSearch);
+  if (idx === -1) {
+    // Try case-insensitive as last resort
+    idx = normalizedFull.toLowerCase().indexOf(normalizedSearch.toLowerCase());
+  }
+  if (idx === -1) return null;
+
+  const endIdx = idx + normalizedSearch.length;
+
+  // Map character positions back to text nodes
+  let startNode: Text | null = null;
+  let startOffset = 0;
+  let endNode: Text | null = null;
+  let endOffset = 0;
+
+  for (const seg of segments) {
+    const segEnd = seg.start + seg.length;
+    if (!startNode && idx < segEnd) {
+      startNode = seg.node;
+      startOffset = idx - seg.start;
+    }
+    if (endIdx <= segEnd) {
+      endNode = seg.node;
+      endOffset = endIdx - seg.start;
+      break;
     }
   }
 
-  return html;
+  if (!startNode || !endNode) return null;
+
+  const range = document.createRange();
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
+  return range;
 }
 
 function getTypeIcon(type: string): string {
@@ -312,8 +374,4 @@ function getTypeIcon(type: string): string {
     case 'film': return '\u25B6';
     default: return '\u2022';
   }
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { saveBook, getBooks } from '../db/cache.js';
@@ -55,22 +56,29 @@ router.get('/demo/chapters', (_req: Request, res: Response) => {
 });
 
 // POST /api/books — upload an EPUB
-router.post('/', upload.single('book'), (req: Request, res: Response) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No file uploaded' });
-    return;
-  }
+router.post('/', (req: Request, res: Response) => {
+  upload.single('book')(req, res, (err: any) => {
+    if (err) {
+      console.error('Upload error:', err);
+      res.status(400).json({ error: err.message || 'Upload failed' });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
 
-  const { title, author } = req.body;
-  const bookId = randomUUID();
+    const { title, author } = req.body;
+    const bookId = randomUUID();
 
-  saveBook(bookId, title || 'Untitled', author || 'Unknown', req.file.filename);
+    saveBook(bookId, title || 'Untitled', author || 'Unknown', req.file.filename);
 
-  res.json({
-    id: bookId,
-    title: title || 'Untitled',
-    author: author || 'Unknown',
-    fileName: req.file.filename,
+    res.json({
+      id: bookId,
+      title: title || 'Untitled',
+      author: author || 'Unknown',
+      fileName: req.file.filename,
+    });
   });
 });
 
@@ -83,6 +91,10 @@ router.get('/:id/file', (req: Request, res: Response) => {
     return;
   }
   const filePath = path.join(UPLOADS_DIR, book.file_name);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: 'EPUB file not found on disk. Please re-upload the book.' });
+    return;
+  }
   res.sendFile(filePath);
 });
 

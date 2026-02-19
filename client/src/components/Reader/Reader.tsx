@@ -22,6 +22,8 @@ export default function Reader({ book, onBack }: Props) {
   const [activeMedia, setActiveMedia] = useState<ResolvedMedia | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentCfi, setCurrentCfi] = useState<string>('');
   const [chapterTitle, setChapterTitle] = useState<string>('');
 
@@ -40,7 +42,21 @@ export default function Reader({ book, onBack }: Props) {
     });
 
     renditionRef.current = rendition;
-    rendition.display();
+
+    rendition.display().then(() => {
+      setLoading(false);
+    }).catch((err: any) => {
+      console.error('EPUB display failed:', err);
+      setLoading(false);
+      setLoadError('Could not open this EPUB. The file may be missing or corrupted — try uploading it again.');
+    });
+
+    // Catch book-level open errors (e.g. 404, bad zip)
+    epubBook.ready.catch((err: any) => {
+      console.error('EPUB open failed:', err);
+      setLoading(false);
+      setLoadError('Could not open this EPUB. The file may be missing or corrupted — try uploading it again.');
+    });
 
     // Track location changes for analysis
     rendition.on('relocated', (location: any) => {
@@ -199,7 +215,17 @@ export default function Reader({ book, onBack }: Props) {
           &#8249;
         </button>
 
-        <div className="reader-viewer" ref={viewerRef} />
+        <div className="reader-viewer" ref={viewerRef}>
+          {loading && (
+            <div className="reader-loading">Loading book...</div>
+          )}
+          {loadError && (
+            <div className="reader-error">
+              <p>{loadError}</p>
+              <button className="reader-back" onClick={onBack}>&larr; Back to Library</button>
+            </div>
+          )}
+        </div>
 
         <button className="reader-nav reader-nav--next" onClick={handleNext}>
           &#8250;

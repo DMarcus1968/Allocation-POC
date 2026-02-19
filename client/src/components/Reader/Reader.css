@@ -187,4 +187,26 @@
   color: var(--text-muted);
 }
 
+.reader-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.reader-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+  padding: 40px;
+}
+
 /* epub.js highlight styles injected into iframe */

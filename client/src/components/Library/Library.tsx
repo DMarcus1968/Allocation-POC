@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, FileRejection } from 'react-dropzone';
 import { BookMeta } from '../../types';
-import { fetchBooks, uploadBook } from '../../services/api';
+import { fetchBooks, uploadBook, deleteBook } from '../../services/api';
 import './Library.css';
 
 interface Props {
@@ -17,12 +17,16 @@ export default function Library({ onSelectBook }: Props) {
     fetchBooks().then(setBooks).catch(() => setError('Failed to load books'));
   }, []);
 
-  const onDrop = useCallback(async (files: File[]) => {
-    if (files.length === 0) return;
+  const onDrop = useCallback(async (accepted: File[], rejected: FileRejection[]) => {
+    if (rejected.length > 0) {
+      setError('Only .epub files are supported. The file was not recognized as an EPUB.');
+      return;
+    }
+    if (accepted.length === 0) return;
     setUploading(true);
     setError(null);
     try {
-      for (const file of files) {
+      for (const file of accepted) {
         const name = file.name.replace(/\.epub$/i, '');
         const book = await uploadBook(file, name);
         setBooks(prev => [book, ...prev]);
@@ -34,9 +38,22 @@ export default function Library({ onSelectBook }: Props) {
     }
   }, []);
 
+  const handleDelete = async (e: React.MouseEvent, bookId: string) => {
+    e.stopPropagation();
+    try {
+      await deleteBook(bookId);
+      setBooks(prev => prev.filter(b => b.id !== bookId));
+    } catch {
+      setError('Failed to delete book');
+    }
+  };
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/epub+zip': ['.epub'] },
+    accept: {
+      'application/epub+zip': ['.epub'],
+      'application/octet-stream': ['.epub'],
+    },
     multiple: true,
   });
 
@@ -71,11 +88,23 @@ export default function Library({ onSelectBook }: Props) {
       {books.length > 0 && (
         <div className="library-grid">
           {books.map(book => (
-            <button
+            <div
               key={book.id}
               className={`book-card ${book.isDemo ? 'book-card--demo' : ''}`}
               onClick={() => onSelectBook(book)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && onSelectBook(book)}
             >
+              {!book.isDemo && (
+                <button
+                  className="book-delete"
+                  onClick={(e) => handleDelete(e, book.id)}
+                  title="Remove from library"
+                >
+                  &times;
+                </button>
+              )}
               <div className="book-cover">
                 {book.coverUrl ? (
                   <img src={book.coverUrl} alt={book.title} />
@@ -87,19 +116,19 @@ export default function Library({ onSelectBook }: Props) {
                         <span className="demo-cover-label">DEMO</span>
                       </div>
                     ) : (
-                      <span>{book.title[0]}</span>
+                      <span>{(book.title || '?')[0]}</span>
                     )}
                   </div>
                 )}
               </div>
               <div className="book-info">
-                <h3 className="book-title">{book.title}</h3>
+                <h3 className="book-title">{book.title || 'Untitled'}</h3>
                 <p className="book-author">{book.author}</p>
                 {book.isDemo && (
                   <p className="book-demo-tag">Try it out &rarr;</p>
                 )}
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

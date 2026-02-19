@@ -215,7 +215,10 @@ export default function Reader({ book, onBack }: Props) {
           &#8249;
         </button>
 
-        <div className="reader-viewer" ref={viewerRef}>
+        <div className="reader-viewer-wrapper">
+          {/* epub.js owns this div — no React children inside it */}
+          <div className="reader-viewer" ref={viewerRef} />
+
           {loading && (
             <div className="reader-loading">Loading book...</div>
           )}

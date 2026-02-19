@@ -74,10 +74,39 @@
   padding: 0;
   border-radius: var(--radius);
   transition: transform 0.15s;
+  position: relative;
+  cursor: pointer;
 }
 
 .book-card:hover {
   transform: translateY(-2px);
+}
+
+.book-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+
+.book-card:hover .book-delete {
+  opacity: 1;
+}
+
+.book-delete:hover {
+  background: #d32f2f;
 }
 
 .book-cover {

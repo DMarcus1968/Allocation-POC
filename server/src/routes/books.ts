@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
-import { saveBook, getBooks } from '../db/cache.js';
+import { saveBook, getBooks, getBook, deleteBookRecord } from '../db/cache.js';
 import { DEMO_BOOK } from '../services/demo-book.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -96,6 +96,23 @@ router.get('/:id/file', (req: Request, res: Response) => {
     return;
   }
   res.sendFile(filePath);
+});
+
+// DELETE /api/books/:id — remove a book and its file
+router.delete('/:id', (req: Request, res: Response) => {
+  const book = getBook(req.params.id);
+  if (!book) {
+    res.status(404).json({ error: 'Book not found' });
+    return;
+  }
+  // Remove file from disk
+  const filePath = path.join(UPLOADS_DIR, book.file_name);
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+  // Remove DB records
+  deleteBookRecord(book.id);
+  res.json({ ok: true });
 });
 
 export default router;

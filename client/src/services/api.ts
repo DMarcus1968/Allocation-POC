@@ -19,6 +19,11 @@ export async function uploadBook(file: File, title?: string, author?: string): P
   return res.json();
 }
 
+export async function deleteBook(bookId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/books/${bookId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Delete failed');
+}
+
 export function getBookFileUrl(bookId: string): string {
   return `${API_BASE}/books/${bookId}/file`;
 }

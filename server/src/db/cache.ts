@@ -77,3 +77,12 @@ export function saveBook(id: string, title: string, author: string, fileName: st
 export function getBooks() {
   return db.prepare('SELECT * FROM books ORDER BY created_at DESC').all();
 }
+
+export function getBook(id: string) {
+  return db.prepare('SELECT * FROM books WHERE id = ?').get(id) as { id: string; file_name: string } | undefined;
+}
+
+export function deleteBookRecord(id: string) {
+  db.prepare('DELETE FROM books WHERE id = ?').run(id);
+  db.prepare('DELETE FROM analysis_cache WHERE book_id = ?').run(id);
+}

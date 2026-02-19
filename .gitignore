@@ -4,4 +4,5 @@ dist/
 *.db
 *.sqlite
 uploads/
+server/data/
 .DS_Store

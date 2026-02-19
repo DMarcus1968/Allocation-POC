@@ -33,6 +33,21 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', name: 'FootNote API', demoMode: DEMO_MODE });
 });
 
+// Serve client dist (with no-cache headers to prevent stale builds)
+const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist, {
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    },
+  }));
+  // SPA fallback — serve index.html for all non-API routes
+  app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
 app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`FootNote API running on http://0.0.0.0:${PORT}`);
   if (DEMO_MODE) {

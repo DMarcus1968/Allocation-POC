@@ -72,7 +72,7 @@ export default function MediaCard({ reference, media, onClose, onPlay }: Props) 
                 className="media-btn media-btn--youtube"
                 onClick={() => onPlay(media)}
               >
-                &#9654; Watch
+                &#9654; {reference.type === 'music' ? 'Listen' : 'Watch'}
               </button>
             )}
             {media.provider === 'image' && media.imageUrl && (

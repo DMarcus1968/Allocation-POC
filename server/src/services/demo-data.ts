@@ -34,9 +34,9 @@ const DEMO_DATABASE: DemoReference[] = [
     type: 'music',
     entity: { title: 'Like a Rolling Stone', creator: 'Bob Dylan', kind: 'song', year: 1965 },
     resolved: {
-      provider: 'spotify',
-      thumbnailUrl: 'https://i.scdn.co/image/ab67616d0000b273029d34dab2e91ea6b498e7e2',
-      spotifyUri: 'spotify:track:3AhXZa8sUQht0UEdBJgpGc',
+      provider: 'youtube',
+      thumbnailUrl: 'https://i.ytimg.com/vi/IwOfCgkyEj0/mqdefault.jpg',
+      youtubeVideoId: 'IwOfCgkyEj0',
     },
   },
   {
@@ -44,9 +44,9 @@ const DEMO_DATABASE: DemoReference[] = [
     type: 'music',
     entity: { title: 'Bohemian Rhapsody', creator: 'Queen', kind: 'song', year: 1975 },
     resolved: {
-      provider: 'spotify',
-      thumbnailUrl: 'https://i.scdn.co/image/ab67616d0000b2730c1c1b3e7e4ae5e31e6a5f5b',
-      spotifyUri: 'spotify:track:4u7EnebtmKWzUH433cf5Qv',
+      provider: 'youtube',
+      thumbnailUrl: 'https://i.ytimg.com/vi/fJ9rUzIMcZQ/mqdefault.jpg',
+      youtubeVideoId: 'fJ9rUzIMcZQ',
     },
   },
   {
@@ -54,9 +54,9 @@ const DEMO_DATABASE: DemoReference[] = [
     type: 'music',
     entity: { title: 'A Love Supreme', creator: 'John Coltrane', kind: 'album', year: 1965 },
     resolved: {
-      provider: 'spotify',
-      thumbnailUrl: 'https://i.scdn.co/image/ab67616d0000b273a2e8cd4e0f0f2d1a3b9e2e1c',
-      spotifyUri: 'spotify:album:3TFGIqOBHgregwkRPflQBz',
+      provider: 'youtube',
+      thumbnailUrl: 'https://i.ytimg.com/vi/clC6cgoh1sU/mqdefault.jpg',
+      youtubeVideoId: 'clC6cgoh1sU',
     },
   },
   {
@@ -64,9 +64,9 @@ const DEMO_DATABASE: DemoReference[] = [
     type: 'music',
     entity: { title: 'Kind of Blue', creator: 'Miles Davis', kind: 'album', year: 1959 },
     resolved: {
-      provider: 'spotify',
-      thumbnailUrl: 'https://i.scdn.co/image/ab67616d0000b2734b3b6c82db72ce89e4e9eb52',
-      spotifyUri: 'spotify:album:1weenld61qoidwYuZ1GESA',
+      provider: 'youtube',
+      thumbnailUrl: 'https://i.ytimg.com/vi/zqNTltOGh5c/mqdefault.jpg',
+      youtubeVideoId: 'zqNTltOGh5c',
     },
   },
   {

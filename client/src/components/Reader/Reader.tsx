@@ -21,6 +21,7 @@ export default function Reader({ book, onBack }: Props) {
   const [selectedRef, setSelectedRef] = useState<MediaReference | null>(null);
   const [activeMedia, setActiveMedia] = useState<ResolvedMedia | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [currentCfi, setCurrentCfi] = useState<string>('');
   const [chapterTitle, setChapterTitle] = useState<string>('');
 
@@ -101,6 +102,7 @@ export default function Reader({ book, onBack }: Props) {
       const result = await analyzePassage(book.id, currentCfi, visibleText);
 
       setReferences(result.references);
+      setNotice(result.notice || null);
 
       // Merge resolved media into our map
       const newMap = new Map(resolvedMedia);
@@ -185,6 +187,9 @@ export default function Reader({ book, onBack }: Props) {
           {analyzing && <span className="analyzing-badge">Analyzing...</span>}
           {references.length > 0 && (
             <span className="ref-count">{references.length} media found</span>
+          )}
+          {notice && !analyzing && references.length === 0 && (
+            <span className="reader-notice">{notice}</span>
           )}
         </div>
       </div>

@@ -26,6 +26,7 @@ export function getBookFileUrl(bookId: string): string {
 export interface AnalyzeResult {
   references: MediaReference[];
   resolvedMedia: ResolvedMedia[];
+  notice?: string;
 }
 
 export async function fetchDemoBook(): Promise<DemoBookData> {

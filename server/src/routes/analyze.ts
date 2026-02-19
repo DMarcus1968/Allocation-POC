@@ -25,6 +25,14 @@ router.post('/', async (req: Request, res: Response) => {
     // Demo mode: use built-in pattern matching (no API keys needed)
     if (DEMO_MODE) {
       const result = analyzeDemoText(text);
+      // If this is an uploaded book (not the demo), let the user know
+      if (bookId !== 'demo-book-001' && result.references.length === 0) {
+        res.json({
+          ...result,
+          notice: 'Demo mode: media detection for uploaded books requires an ANTHROPIC_API_KEY. The built-in demo book works without API keys.',
+        });
+        return;
+      }
       res.json(result);
       return;
     }

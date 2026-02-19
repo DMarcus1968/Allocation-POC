@@ -68,7 +68,7 @@ export default function Library({ onSelectBook }: Props) {
       <div className="library-header">
         <h1>Your Library</h1>
         <p className="library-subtitle">
-          Upload an EPUB to start reading with inline media (v2 — drop any file to test)
+          Upload an EPUB to start reading with inline media (v3 — port 4000)
         </p>
       </div>
 

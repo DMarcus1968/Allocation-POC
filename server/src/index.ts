@@ -10,7 +10,7 @@ import booksRouter from './routes/books.js';
 import { DEMO_MODE } from './services/demo-data.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 4000;
 
 // Ensure data directories exist
 const dataDir = path.join(__dirname, '..', 'data');

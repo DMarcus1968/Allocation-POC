@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useDropzone, FileRejection } from 'react-dropzone';
+import { useDropzone } from 'react-dropzone';
 import { BookMeta } from '../../types';
 import { fetchBooks, uploadBook, deleteBook } from '../../services/api';
 import './Library.css';
@@ -17,16 +17,20 @@ export default function Library({ onSelectBook }: Props) {
     fetchBooks().then(setBooks).catch(() => setError('Failed to load books'));
   }, []);
 
-  const onDrop = useCallback(async (accepted: File[], rejected: FileRejection[]) => {
-    if (rejected.length > 0) {
-      setError('Only .epub files are supported. The file was not recognized as an EPUB.');
+  const onDrop = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+
+    // Validate extension client-side (server also validates)
+    const epubs = files.filter(f => f.name.toLowerCase().endsWith('.epub'));
+    if (epubs.length === 0) {
+      setError('Only .epub files are supported.');
       return;
     }
-    if (accepted.length === 0) return;
+
     setUploading(true);
     setError(null);
     try {
-      for (const file of accepted) {
+      for (const file of epubs) {
         const name = file.name.replace(/\.epub$/i, '');
         const book = await uploadBook(file, name);
         setBooks(prev => [book, ...prev]);
@@ -50,10 +54,6 @@ export default function Library({ onSelectBook }: Props) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'application/epub+zip': ['.epub'],
-      'application/octet-stream': ['.epub'],
-    },
     multiple: true,
   });
 
@@ -70,7 +70,7 @@ export default function Library({ onSelectBook }: Props) {
         {...getRootProps()}
         className={`library-dropzone ${isDragActive ? 'active' : ''} ${uploading ? 'uploading' : ''}`}
       >
-        <input {...getInputProps()} />
+        <input {...getInputProps({ accept: '.epub' })} />
         {uploading ? (
           <p>Uploading...</p>
         ) : isDragActive ? (

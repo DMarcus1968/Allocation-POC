@@ -201,6 +201,67 @@ async function resolveYouTubeFree(ref: MediaReference, forType: 'music' | 'film'
   };
 }
 
+async function resolveWikipedia(ref: MediaReference): Promise<ResolvedMedia | null> {
+  const query = ref.entity.creator || ref.entity.title;
+  try {
+    // Try Wikipedia REST API for a clean summary
+    const res = await fetchWithTimeout(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`,
+      5000
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data.type === 'standard' || data.type === 'disambiguation') {
+        console.log(`  Resolved "${query}" via Wikipedia`);
+        return {
+          referenceId: ref.id,
+          type: ref.type,
+          provider: 'wikipedia',
+          title: data.title,
+          creator: ref.entity.creator,
+          thumbnailUrl: data.thumbnail?.source,
+          wikipediaUrl: data.content_urls?.desktop?.page,
+          wikipediaSummary: data.extract,
+        };
+      }
+    }
+
+    // Fallback: search Wikipedia
+    const searchRes = await fetchWithTimeout(
+      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query + ' musician')}&srlimit=1&format=json&origin=*`,
+      5000
+    );
+    if (searchRes.ok) {
+      const searchData = await searchRes.json();
+      const firstResult = searchData.query?.search?.[0];
+      if (firstResult) {
+        const pageTitle = firstResult.title;
+        const summaryRes = await fetchWithTimeout(
+          `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`,
+          5000
+        );
+        if (summaryRes.ok) {
+          const data = await summaryRes.json();
+          console.log(`  Resolved "${query}" via Wikipedia search -> ${data.title}`);
+          return {
+            referenceId: ref.id,
+            type: ref.type,
+            provider: 'wikipedia',
+            title: data.title,
+            creator: ref.entity.creator,
+            thumbnailUrl: data.thumbnail?.source,
+            wikipediaUrl: data.content_urls?.desktop?.page,
+            wikipediaSummary: data.extract,
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`Wikipedia resolution failed for "${query}":`, err);
+  }
+  return null;
+}
+
 async function resolveImage(ref: MediaReference): Promise<ResolvedMedia | null> {
   const query = `${ref.entity.title} ${ref.entity.creator}`;
   try {
@@ -234,6 +295,11 @@ async function resolveImage(ref: MediaReference): Promise<ResolvedMedia | null> 
 }
 
 export async function resolveMedia(ref: MediaReference): Promise<ResolvedMedia | null> {
+  // Artist mentions get Wikipedia pages, not playable media
+  if (ref.entity.kind === 'artist_mention') {
+    return resolveWikipedia(ref);
+  }
+
   switch (ref.type) {
     case 'music': return resolveMusic(ref);
     case 'film': return resolveYouTube(ref, 'film');

@@ -20,7 +20,7 @@ export interface MediaReference {
 export interface ResolvedMedia {
   referenceId: string;
   type: MediaType;
-  provider: 'spotify' | 'youtube' | 'youtube-search' | 'image';
+  provider: 'spotify' | 'youtube' | 'youtube-search' | 'image' | 'wikipedia';
   title: string;
   creator: string;
   thumbnailUrl?: string;
@@ -32,6 +32,8 @@ export interface ResolvedMedia {
   imageUrl?: string;
   imageSource?: string;
   imageAttribution?: string;
+  wikipediaUrl?: string;
+  wikipediaSummary?: string;
 }
 
 export interface AnalyzeRequest {

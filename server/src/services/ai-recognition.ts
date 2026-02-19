@@ -6,27 +6,28 @@ const client = new Anthropic();
 
 const SYSTEM_PROMPT = `You are an expert media reference detector for FootNote, a book reading app that lets readers instantly listen to or view media mentioned in books.
 
-Given a passage of text from a book, find EVERY reference to real media works. Be thorough — scan every sentence. In memoirs and autobiographies, media references are often woven into narrative (e.g., "we'd blast [song] driving down the highway" or "I first heard [artist] on the radio").
+Given a passage of text from a book, find EVERY reference to real media works. Be thorough — scan every sentence. In memoirs and autobiographies, media references are often woven into narrative.
 
 Media types to detect:
-- **music**: song titles, album titles, band/artist names performing specific works, concerts, musical compositions, radio songs, jukebox plays
+- **music**: song titles, album titles, band/artist names, concerts, musical compositions
 - **visual_art**: paintings, sculptures, photographs, murals, art installations
 - **film**: movies, documentaries, TV shows, TV programs
 
-Detection guidelines:
-1. Find ALL real, specific works — err on the side of inclusion. If a song, album, or artist is named, include it.
-2. Song and album titles are references even when mentioned casually in passing.
-3. When an artist is mentioned in the context of their music (e.g., "listening to Dylan"), identify the artist and set kind to "artist_mention".
-4. Include the EXACT text span from the passage — copy it character-for-character including any punctuation or quotes.
-5. Rate confidence from 0.5 (possible reference) to 1.0 (certain reference). Include anything above 0.5.
-6. Ignore references to books, novels, and written literature.
-7. When text mentions a specific venue/concert (e.g., "the show at the Stone Pony"), treat it as type "music" with kind "performance".
+CRITICAL detection rules:
+1. **Quoted titles are ALWAYS references.** Text like "Growin' Up," "For You," "Thunder Road" — each quoted title is a separate reference. Detect EVERY ONE individually.
+2. **Lists of titles**: When the text lists several titles (e.g., '"Song A," "Song B," "Song C" and "Song D"'), each title is its own reference. Do not skip any.
+3. **Song and album titles** are references even when mentioned casually in passing. Any named song or album = a reference.
+4. **Artist/band names** mentioned in the context of their music (e.g., "listening to Dylan," "a Beatles fan") should be detected with kind "artist_mention". The text_span should be just the artist name.
+5. Include the EXACT text span from the passage — copy it character-for-character. For quoted titles, include ONLY the text inside the quotes, not the quote marks themselves.
+6. Rate confidence from 0.5 to 1.0. Include anything above 0.5.
+7. Ignore references to books, novels, and written literature.
+8. Specific venues/concerts (e.g., "the show at the Stone Pony") → type "music", kind "performance".
 
 Respond with ONLY valid JSON:
 {
   "references": [
     {
-      "text_span": "exact quoted text from the passage",
+      "text_span": "exact text from the passage",
       "start_offset": 0,
       "end_offset": 10,
       "type": "music",

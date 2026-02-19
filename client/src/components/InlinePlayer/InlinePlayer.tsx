@@ -21,7 +21,7 @@ export default function InlinePlayer({ media, onClose }: Props) {
             <span className="inline-player-title">{media.title}</span>
             <span className="inline-player-creator">{media.creator}</span>
             <span className={`inline-player-type inline-player-type--${media.type}`}>
-              {media.type === 'music' ? '\u266B Music' : media.type === 'visual_art' ? '\u25CF Art' : '\u25B6 Film'}
+              {media.provider === 'wikipedia' ? '\u2139 Artist' : media.type === 'music' ? '\u266B Music' : media.type === 'visual_art' ? '\u25CF Art' : '\u25B6 Film'}
             </span>
           </div>
         </div>
@@ -40,11 +40,18 @@ export default function InlinePlayer({ media, onClose }: Props) {
               source={media.imageSource}
             />
           )}
+          {media.provider === 'wikipedia' && media.wikipediaUrl && (
+            <WikipediaView
+              summary={media.wikipediaSummary}
+              url={media.wikipediaUrl}
+              thumbnailUrl={media.thumbnailUrl}
+            />
+          )}
           {media.provider === 'youtube-search' && media.youtubeSearchQuery && (
             <YouTubeSearchLink query={media.youtubeSearchQuery} title={media.title} creator={media.creator} />
           )}
           {/* Fallback when no playable content */}
-          {!media.youtubeVideoId && !media.previewUrl && !media.imageUrl && !media.youtubeSearchQuery && (
+          {!media.youtubeVideoId && !media.previewUrl && !media.imageUrl && !media.youtubeSearchQuery && !media.wikipediaUrl && (
             <div className="inline-player-empty">
               <p>No preview available for this reference.</p>
               <p className="inline-player-entity">
@@ -143,6 +150,18 @@ function ImageView({ url, attribution, source }: { url: string; attribution?: st
           {source ? <a href={source} target="_blank" rel="noopener noreferrer">{attribution}</a> : attribution}
         </p>
       )}
+    </div>
+  );
+}
+
+function WikipediaView({ summary, url, thumbnailUrl }: { summary?: string; url: string; thumbnailUrl?: string }) {
+  return (
+    <div className="wiki-view">
+      {thumbnailUrl && <img src={thumbnailUrl} alt="" className="wiki-view-img" />}
+      {summary && <p className="wiki-view-summary">{summary}</p>}
+      <a href={url} target="_blank" rel="noopener noreferrer" className="wiki-view-link">
+        Read on Wikipedia
+      </a>
     </div>
   );
 }

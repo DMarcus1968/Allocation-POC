@@ -18,6 +18,9 @@ export default function Library({ onSelectBook }: Props) {
   }, []);
 
   const onDrop = useCallback(async (files: File[]) => {
+    console.log('[FootNote] onDrop fired, files:', files.length, files.map(f => f.name));
+    setError(`Drop received: ${files.length} file(s) — ${files.map(f => f.name).join(', ')}`);
+
     if (files.length === 0) return;
 
     // Validate extension client-side (server also validates)
@@ -32,10 +35,13 @@ export default function Library({ onSelectBook }: Props) {
     try {
       for (const file of epubs) {
         const name = file.name.replace(/\.epub$/i, '');
+        console.log('[FootNote] Uploading:', name);
         const book = await uploadBook(file, name);
+        console.log('[FootNote] Upload success:', book);
         setBooks(prev => [book, ...prev]);
       }
-    } catch {
+    } catch (err) {
+      console.error('[FootNote] Upload error:', err);
       setError('Failed to upload book. Make sure it is a valid EPUB file.');
     } finally {
       setUploading(false);
@@ -62,7 +68,7 @@ export default function Library({ onSelectBook }: Props) {
       <div className="library-header">
         <h1>Your Library</h1>
         <p className="library-subtitle">
-          Upload an EPUB to start reading with inline media
+          Upload an EPUB to start reading with inline media (v2 — drop any file to test)
         </p>
       </div>
 

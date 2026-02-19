@@ -55,8 +55,8 @@ const DEMO_DATABASE: DemoReference[] = [
     entity: { title: 'A Love Supreme', creator: 'John Coltrane', kind: 'album', year: 1965 },
     resolved: {
       provider: 'youtube',
-      thumbnailUrl: 'https://i.ytimg.com/vi/clC6cgoh1sU/mqdefault.jpg',
-      youtubeVideoId: 'clC6cgoh1sU',
+      thumbnailUrl: 'https://i.ytimg.com/vi/vMCHDC2Lurk/mqdefault.jpg',
+      youtubeVideoId: 'vMCHDC2Lurk',
     },
   },
   {

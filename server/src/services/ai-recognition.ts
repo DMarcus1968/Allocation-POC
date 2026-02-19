@@ -66,20 +66,22 @@ export async function analyzeText(text: string): Promise<MediaReference[]> {
     // Strip markdown code fences if present (e.g. ```json ... ```)
     const raw = content.text.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '');
     const parsed = JSON.parse(raw);
-    return (parsed.references || []).map((ref: any) => ({
-      id: randomUUID(),
-      textSpan: ref.text_span,
-      startOffset: ref.start_offset,
-      endOffset: ref.end_offset,
-      type: ref.type as MediaType,
-      entity: {
-        title: ref.entity.title,
-        creator: ref.entity.creator,
-        kind: ref.entity.kind,
-        year: ref.entity.year,
-      },
-      confidence: ref.confidence,
-    }));
+    return (parsed.references || [])
+      .filter((ref: any) => ref && ref.entity && ref.entity.title)
+      .map((ref: any) => ({
+        id: randomUUID(),
+        textSpan: ref.text_span,
+        startOffset: ref.start_offset,
+        endOffset: ref.end_offset,
+        type: ref.type as MediaType,
+        entity: {
+          title: ref.entity.title,
+          creator: ref.entity.creator || 'Unknown',
+          kind: ref.entity.kind,
+          year: ref.entity.year,
+        },
+        confidence: ref.confidence,
+      }));
   } catch {
     console.error('Failed to parse AI response:', content.text);
     return [];

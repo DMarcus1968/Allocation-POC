@@ -240,6 +240,17 @@
   padding: 0.5rem 0;
 }
 
+.reader-notice {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 0.6rem 0.85rem;
+  margin-top: 0.5rem;
+  background: rgba(245, 158, 11, 0.08);
+  border-left: 3px solid rgba(245, 158, 11, 0.5);
+  border-radius: 0 6px 6px 0;
+  animation: fadeIn 0.3s ease;
+}
+
 /* Bottom navigation */
 .reader-nav {
   display: flex;

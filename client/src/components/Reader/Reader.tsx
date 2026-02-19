@@ -21,6 +21,7 @@ export default function Reader({ bookId, onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [annotations, setAnnotations] = useState<ChapterAnnotations | null>(null);
+  const [analysisNotice, setAnalysisNotice] = useState<string | null>(null);
   const [activeMedia, setActiveMedia] = useState<ResolvedMedia | null>(null);
   const [tocOpen, setTocOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -45,6 +46,7 @@ export default function Reader({ bookId, onBack }: Props) {
     }
 
     setAnalyzing(true);
+    setAnalysisNotice(null);
     try {
       const chapter = book.chapters[idx];
       // Extract plain text from HTML for analysis
@@ -56,9 +58,10 @@ export default function Reader({ bookId, onBack }: Props) {
       const ann = { references: result.references, resolvedMedia: result.resolvedMedia || [] };
       annotationCache.current.set(cacheKey, ann);
       setAnnotations(ann);
+      if (result.notice) setAnalysisNotice(result.notice);
     } catch {
-      // Analysis failure is non-fatal — just show the text without highlights
       setAnnotations(null);
+      setAnalysisNotice('Reference detection failed — check that ANTHROPIC_API_KEY is set in server/.env');
     } finally {
       setAnalyzing(false);
     }
@@ -69,6 +72,7 @@ export default function Reader({ bookId, onBack }: Props) {
     if (!book) return;
     setAnnotations(null);
     setActiveMedia(null);
+    setAnalysisNotice(null);
     runAnalysis(book, chapterIndex);
   }, [book, chapterIndex, runAnalysis]);
 
@@ -211,6 +215,13 @@ export default function Reader({ bookId, onBack }: Props) {
             {refCount} reference{refCount !== 1 ? 's' : ''} found
           </div>
         )}
+
+        {/* Analysis notice (demo mode or error) */}
+        {!analyzing && analysisNotice && (
+          <div className="reader-notice">
+            {analysisNotice}
+          </div>
+        )}
       </main>
 
       {/* Inline media player */}
@@ -276,8 +287,8 @@ function injectHighlights(
     const escaped = escapeRegex(ref.textSpan);
     const regex = new RegExp(`(?<=>)([^<]*?)(${escaped})([^<]*?)(?=<)`, 'g');
 
-    html = html.replace(regex, (match, before, span, after) => {
-      return `>${before}<mark class="fn-mark ${typeClass} ${hasMedia}" data-ref-id="${ref.id}">${span}<span class="fn-mark-icon">${icon}</span></mark>${after}<`;
+    html = html.replace(regex, (_match, before, span, after) => {
+      return `${before}<mark class="fn-mark ${typeClass} ${hasMedia}" data-ref-id="${ref.id}">${span}<span class="fn-mark-icon">${icon}</span></mark>${after}`;
     });
 
     // Also try to match text that starts a text node (after a tag)

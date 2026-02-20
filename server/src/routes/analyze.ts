@@ -47,12 +47,13 @@ router.post('/', async (req: Request, res: Response) => {
       console.log(`  Analyzing chapter ${chapterIndex} (${trimmedText.length} chars)...`);
       const rawRefs = await analyzeText(trimmedText);
 
-      // Deduplicate: keep only the first occurrence of each unique entity
+      // Deduplicate: keep only one reference per unique text_span (exact position),
+      // but allow the same entity to appear multiple times at different positions
       const seen = new Set<string>();
       references = rawRefs
         .filter(ref => ref.entity?.title && ref.entity?.creator)
         .filter(ref => {
-          const key = `${ref.entity.title.toLowerCase()}|${ref.entity.creator.toLowerCase()}|${ref.type}`;
+          const key = `${ref.textSpan.toLowerCase()}|${ref.startOffset}`;
           if (seen.has(key)) return false;
           seen.add(key);
           return true;

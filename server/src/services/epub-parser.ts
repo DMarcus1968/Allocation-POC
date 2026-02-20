@@ -52,8 +52,13 @@ export async function parseEpub(buffer: Buffer, bookId: string): Promise<BookMet
   let coverImage: string | undefined;
   try {
     coverImage = await extractCoverImage(meta, manifest, opfDir, zip);
-  } catch {
-    // Cover extraction is best-effort
+    if (coverImage) {
+      console.log(`  Cover image extracted (${Math.round(coverImage.length / 1024)}KB base64)`);
+    } else {
+      console.log('  No cover image found in EPUB manifest');
+    }
+  } catch (err) {
+    console.warn('  Cover extraction failed:', err);
   }
 
   // Step 4: Read spine (reading order)

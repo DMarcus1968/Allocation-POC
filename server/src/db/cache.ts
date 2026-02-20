@@ -88,7 +88,7 @@ export function getBooks() {
 
 export function getBook(id: string) {
   return db.prepare('SELECT * FROM books WHERE id = ?').get(id) as
-    | { id: string; title: string; author: string; file_name: string; chapter_count: number }
+    | { id: string; title: string; author: string; file_name: string; chapter_count: number; cover_image: string | null }
     | undefined;
 }
 

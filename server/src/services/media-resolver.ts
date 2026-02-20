@@ -58,6 +58,8 @@ async function resolveMusic(ref: MediaReference): Promise<ResolvedMedia | null> 
       spotifyTrackId: isAlbum ? undefined : item.id,
       previewUrl: isAlbum ? undefined : item.preview_url,
       spotifyUri: item.uri,
+      // Provide YouTube search fallback for when Spotify has no playable preview
+      youtubeSearchQuery: `${ref.entity.title} ${ref.entity.creator}`,
     };
   } catch (err) {
     console.error('Spotify search failed:', err);

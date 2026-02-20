@@ -78,6 +78,13 @@ router.get('/:id/chapters', async (req: Request, res: Response) => {
   try {
     const buffer = fs.readFileSync(filePath);
     const parsed = await parseEpub(buffer, id as string);
+
+    // Backfill cover image if the DB record is missing it
+    if (parsed.coverImage && !book.cover_image) {
+      saveBook(book.id, book.title, book.author, book.file_name, book.chapter_count, parsed.coverImage);
+      console.log(`  Backfilled cover image for "${book.title}"`);
+    }
+
     res.json(parsed);
   } catch (err) {
     console.error('EPUB parse error:', err);

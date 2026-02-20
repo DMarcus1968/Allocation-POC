@@ -105,10 +105,26 @@ export default function Reader({ bookId, onBack }: Props) {
     marks.forEach(mark => {
       mark.addEventListener('click', () => {
         const refId = mark.getAttribute('data-ref-id');
-        const media = annotations?.resolvedMedia.find(m => m.referenceId === refId);
+        let media = annotations?.resolvedMedia.find(m => m.referenceId === refId);
+
+        // Client-side fallback: if server didn't resolve, build a minimal info card
+        if (!media && refId) {
+          const ref = annotations?.references.find(r => r.id === refId);
+          if (ref) {
+            media = {
+              referenceId: ref.id,
+              type: ref.type,
+              provider: 'wikipedia',
+              title: ref.entity.title,
+              creator: ref.entity.creator,
+              wikipediaUrl: `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(ref.entity.title)}`,
+              wikipediaSummary: `${ref.entity.title} by ${ref.entity.creator}.`,
+            };
+          }
+        }
+
         if (media) {
-          setActiveMedia(prev => prev?.referenceId === media.referenceId ? null : media);
-          // Scroll the mark into view
+          setActiveMedia(prev => prev?.referenceId === media!.referenceId ? null : media!);
           mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       });
@@ -284,18 +300,20 @@ function injectHighlightsDOM(
   const sorted = [...references].sort((a, b) => b.textSpan.length - a.textSpan.length);
 
   for (const ref of sorted) {
+    if (!ref.textSpan) continue;
     const media = mediaMap.get(ref.id);
     const range = findTextRange(container, ref.textSpan);
     if (!range) continue;
 
+    const isArtist = ref.entity.kind === 'artist_mention';
     const mark = document.createElement('mark');
-    mark.className = `fn-mark fn-mark--${ref.type} ${media ? 'fn-mark--has-media' : ''}`;
+    mark.className = `fn-mark fn-mark--${ref.type}${isArtist ? ' fn-mark--artist' : ''} fn-mark--has-media`;
     mark.setAttribute('data-ref-id', ref.id);
+    if (isArtist) mark.setAttribute('data-ref-kind', 'artist_mention');
 
     try {
       range.surroundContents(mark);
     } catch {
-      // Range spans multiple elements — extract and re-insert
       const fragment = range.extractContents();
       mark.appendChild(fragment);
       range.insertNode(mark);
@@ -303,7 +321,7 @@ function injectHighlightsDOM(
 
     const iconSpan = document.createElement('span');
     iconSpan.className = 'fn-mark-icon';
-    iconSpan.textContent = getTypeIcon(ref.type);
+    iconSpan.textContent = isArtist ? '\u2139' : getTypeIcon(ref.type);
     mark.appendChild(iconSpan);
   }
 }

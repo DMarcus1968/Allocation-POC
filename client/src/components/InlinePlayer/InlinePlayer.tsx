@@ -14,14 +14,14 @@ export default function InlinePlayer({ media, onClose }: Props) {
         <button className="inline-player-close" onClick={onClose}>&times;</button>
 
         <div className="inline-player-header">
-          {media.thumbnailUrl && (
+          {media.provider !== 'wikipedia' && media.thumbnailUrl && (
             <img className="inline-player-thumb" src={media.thumbnailUrl} alt="" />
           )}
           <div className="inline-player-meta">
             <span className="inline-player-title">{media.title}</span>
             <span className="inline-player-creator">{media.creator}</span>
-            <span className={`inline-player-type inline-player-type--${media.type}`}>
-              {media.provider === 'wikipedia' ? '\u2139 Artist' : media.type === 'music' ? '\u266B Music' : media.type === 'visual_art' ? '\u25CF Art' : '\u25B6 Film'}
+            <span className={`inline-player-type inline-player-type--${media.type} ${media.provider === 'wikipedia' ? 'inline-player-type--info' : ''}`}>
+              {media.provider === 'wikipedia' ? '\u2139 About this reference' : media.type === 'music' ? '\u266B Music' : media.type === 'visual_art' ? '\u25CF Art' : '\u25B6 Film'}
             </span>
           </div>
         </div>
@@ -52,15 +52,6 @@ export default function InlinePlayer({ media, onClose }: Props) {
           )}
           {media.provider === 'youtube-search' && media.youtubeSearchQuery && (
             <YouTubeSearchLink query={media.youtubeSearchQuery} title={media.title} creator={media.creator} />
-          )}
-          {/* Fallback when no playable content */}
-          {media.provider !== 'wikipedia' && !media.youtubeVideoId && !media.previewUrl && !media.imageUrl && !media.youtubeSearchQuery && !media.spotifyUri && (
-            <div className="inline-player-empty">
-              <p>No preview available for this reference.</p>
-              <p className="inline-player-entity">
-                <strong>{media.title}</strong> by {media.creator}
-              </p>
-            </div>
           )}
         </div>
       </div>
@@ -163,14 +154,13 @@ function WikipediaView({ summary, url, thumbnailUrl }: { summary?: string; url: 
       {thumbnailUrl && <img src={thumbnailUrl} alt="" className="wiki-view-img" />}
       {summary && <p className="wiki-view-summary">{summary}</p>}
       <a href={url} target="_blank" rel="noopener noreferrer" className="wiki-view-link">
-        Read on Wikipedia
+        Read more on Wikipedia
       </a>
     </div>
   );
 }
 
 function SpotifyLink({ uri, title, searchQuery, creator }: { uri?: string; title: string; searchQuery?: string; creator: string }) {
-  // Convert spotify:track:ID or spotify:album:ID to a web URL
   const spotifyUrl = uri ? `https://open.spotify.com/${uri.replace(/:/g, '/').replace('spotify/', '')}` : undefined;
   const ytUrl = searchQuery ? `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}` : undefined;
 

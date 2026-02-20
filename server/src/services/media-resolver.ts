@@ -56,9 +56,8 @@ async function resolveMusic(ref: MediaReference): Promise<ResolvedMedia | null> 
       creator: isAlbum ? item.artists[0]?.name : item.artists?.map((a: any) => a.name).join(', '),
       thumbnailUrl: (isAlbum ? item.images : item.album?.images)?.[0]?.url,
       spotifyTrackId: isAlbum ? undefined : item.id,
-      previewUrl: isAlbum ? undefined : item.preview_url,
+      previewUrl: isAlbum ? undefined : item.preview_url || undefined,
       spotifyUri: item.uri,
-      // Provide YouTube search fallback for when Spotify has no playable preview
       youtubeSearchQuery: `${ref.entity.title} ${ref.entity.creator}`,
     };
   } catch (err) {
@@ -124,7 +123,6 @@ async function resolveYouTubeFree(ref: MediaReference, forType: 'music' | 'film'
     );
     if (res.ok) {
       const html = await res.text();
-      // YouTube embeds video data as JSON in the page; extract the first videoId
       const match = html.match(/"videoId":"([\w-]{11})"/);
       if (match) {
         const videoId = match[1];
@@ -204,16 +202,18 @@ async function resolveYouTubeFree(ref: MediaReference, forType: 'music' | 'film'
 }
 
 async function resolveWikipedia(ref: MediaReference): Promise<ResolvedMedia | null> {
-  const query = ref.entity.creator || ref.entity.title;
+  // For artist mentions, the artist name is typically in both title and creator
+  const query = ref.entity.title || ref.entity.creator;
   try {
-    // Try Wikipedia REST API for a clean summary
+    // Try Wikipedia REST API for a clean summary (direct page lookup)
     const res = await fetchWithTimeout(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`,
       5000
     );
     if (res.ok) {
       const data = await res.json();
-      if (data.type === 'standard' || data.type === 'disambiguation') {
+      // Accept standard articles; skip disambiguation pages (too generic)
+      if (data.type === 'standard' && data.extract) {
         console.log(`  Resolved "${query}" via Wikipedia`);
         return {
           referenceId: ref.id,
@@ -228,33 +228,42 @@ async function resolveWikipedia(ref: MediaReference): Promise<ResolvedMedia | nu
       }
     }
 
-    // Fallback: search Wikipedia
+    // Fallback: search Wikipedia with contextual hint based on reference type
+    const typeHint = ref.type === 'music' ? 'musician OR band OR singer OR composer'
+      : ref.type === 'film' ? 'director OR actor OR filmmaker'
+      : ref.type === 'visual_art' ? 'artist OR painter OR sculptor'
+      : '';
+    const searchQuery = typeHint ? `${query} ${typeHint}` : query;
+
     const searchRes = await fetchWithTimeout(
-      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query + ' musician')}&srlimit=1&format=json&origin=*`,
+      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery)}&srlimit=3&format=json&origin=*`,
       5000
     );
     if (searchRes.ok) {
       const searchData = await searchRes.json();
-      const firstResult = searchData.query?.search?.[0];
-      if (firstResult) {
-        const pageTitle = firstResult.title;
-        const summaryRes = await fetchWithTimeout(
-          `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`,
-          5000
-        );
-        if (summaryRes.ok) {
+      const results = searchData.query?.search;
+      if (results?.length) {
+        // Try each result until we get a standard article with a real extract
+        for (const result of results) {
+          const summaryRes = await fetchWithTimeout(
+            `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(result.title)}`,
+            5000
+          );
+          if (!summaryRes.ok) continue;
           const data = await summaryRes.json();
-          console.log(`  Resolved "${query}" via Wikipedia search -> ${data.title}`);
-          return {
-            referenceId: ref.id,
-            type: ref.type,
-            provider: 'wikipedia',
-            title: data.title,
-            creator: ref.entity.creator,
-            thumbnailUrl: data.thumbnail?.source,
-            wikipediaUrl: data.content_urls?.desktop?.page,
-            wikipediaSummary: data.extract,
-          };
+          if (data.type === 'standard' && data.extract) {
+            console.log(`  Resolved "${query}" via Wikipedia search -> ${data.title}`);
+            return {
+              referenceId: ref.id,
+              type: ref.type,
+              provider: 'wikipedia',
+              title: data.title,
+              creator: ref.entity.creator,
+              thumbnailUrl: data.thumbnail?.source,
+              wikipediaUrl: data.content_urls?.desktop?.page,
+              wikipediaSummary: data.extract,
+            };
+          }
         }
       }
     }
@@ -272,48 +281,74 @@ async function resolveImage(ref: MediaReference): Promise<ResolvedMedia | null> 
     );
     const data = await res.json();
     const pages = data.query?.pages;
-    if (!pages) return null;
-
-    const page = Object.values(pages)[0] as any;
-    const imageInfo = page.imageinfo?.[0];
-    if (!imageInfo) return null;
-
-    const meta = imageInfo.extmetadata || {};
-    return {
-      referenceId: ref.id,
-      type: 'visual_art',
-      provider: 'image',
-      title: ref.entity.title,
-      creator: ref.entity.creator,
-      imageUrl: imageInfo.thumburl || imageInfo.url,
-      imageSource: imageInfo.descriptionurl,
-      imageAttribution: meta.Artist?.value || ref.entity.creator,
-      thumbnailUrl: imageInfo.thumburl,
-    };
+    if (pages) {
+      const page = Object.values(pages)[0] as any;
+      const imageInfo = page.imageinfo?.[0];
+      if (imageInfo) {
+        const meta = imageInfo.extmetadata || {};
+        return {
+          referenceId: ref.id,
+          type: 'visual_art',
+          provider: 'image',
+          title: ref.entity.title,
+          creator: ref.entity.creator,
+          imageUrl: imageInfo.thumburl || imageInfo.url,
+          imageSource: imageInfo.descriptionurl,
+          imageAttribution: meta.Artist?.value || ref.entity.creator,
+          thumbnailUrl: imageInfo.thumburl,
+        };
+      }
+    }
   } catch (err) {
     console.error('Wikimedia search failed:', err);
-    return null;
   }
+
+  // Fallback: try Wikipedia for context about the artwork
+  console.log(`  Wikimedia Commons failed for "${ref.entity.title}", trying Wikipedia...`);
+  return resolveWikipedia(ref);
 }
 
-export async function resolveMedia(ref: MediaReference): Promise<ResolvedMedia | null> {
+/**
+ * Build a minimal fallback result so every reference is always clickable.
+ * Shows the entity info with a Wikipedia search link.
+ */
+function buildFallback(ref: MediaReference): ResolvedMedia {
+  const query = ref.entity.title || ref.entity.creator;
+  console.log(`  Using info fallback for "${query}"`);
+  return {
+    referenceId: ref.id,
+    type: ref.type,
+    provider: 'wikipedia',
+    title: ref.entity.title,
+    creator: ref.entity.creator,
+    wikipediaUrl: `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(query)}`,
+    wikipediaSummary: ref.entity.year
+      ? `${ref.entity.title} by ${ref.entity.creator} (${ref.entity.year}).`
+      : `${ref.entity.title} by ${ref.entity.creator}.`,
+  };
+}
+
+export async function resolveMedia(ref: MediaReference): Promise<ResolvedMedia> {
+  let result: ResolvedMedia | null = null;
+
   // Artist mentions get Wikipedia pages, not playable media
   if (ref.entity.kind === 'artist_mention') {
-    return resolveWikipedia(ref);
+    result = await resolveWikipedia(ref);
+  } else {
+    switch (ref.type) {
+      case 'music': result = await resolveMusic(ref); break;
+      case 'film': result = await resolveYouTube(ref, 'film'); break;
+      case 'visual_art': result = await resolveImage(ref); break;
+    }
   }
 
-  switch (ref.type) {
-    case 'music': return resolveMusic(ref);
-    case 'film': return resolveYouTube(ref, 'film');
-    case 'visual_art': return resolveImage(ref);
-    default: return null;
-  }
+  // Every reference must resolve to something — never leave a dead click
+  return result || buildFallback(ref);
 }
 
 export async function resolveAllMedia(refs: MediaReference[]): Promise<ResolvedMedia[]> {
   const results = await Promise.allSettled(refs.map(resolveMedia));
   return results
-    .filter((r): r is PromiseFulfilledResult<ResolvedMedia | null> => r.status === 'fulfilled')
-    .map(r => r.value)
-    .filter((r): r is ResolvedMedia => r !== null);
+    .filter((r): r is PromiseFulfilledResult<ResolvedMedia> => r.status === 'fulfilled')
+    .map(r => r.value);
 }

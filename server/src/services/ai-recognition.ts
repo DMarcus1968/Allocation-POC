@@ -67,7 +67,8 @@ export async function analyzeText(text: string): Promise<MediaReference[]> {
     const raw = content.text.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '');
     const parsed = JSON.parse(raw);
     return (parsed.references || [])
-      .filter((ref: any) => ref && ref.entity && ref.entity.title)
+      .filter((ref: any) => ref && ref.text_span && ref.entity && ref.entity.title
+        && ['music', 'visual_art', 'film'].includes(ref.type))
       .map((ref: any) => ({
         id: randomUUID(),
         textSpan: ref.text_span,

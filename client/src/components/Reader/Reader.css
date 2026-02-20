@@ -199,6 +199,17 @@
   box-shadow: 0 2px 8px rgba(245, 158, 11, 0.15);
 }
 
+/* Artist mentions: distinct teal/info color instead of purple */
+.fn-mark--artist.fn-mark--music {
+  background: rgba(6, 182, 212, 0.10);
+  border-bottom: 2px solid rgba(6, 182, 212, 0.4);
+}
+
+.fn-mark--artist.fn-mark--music:hover {
+  background: rgba(6, 182, 212, 0.18);
+  box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);
+}
+
 .fn-mark-icon {
   font-size: 0.7em;
   margin-left: 0.25em;

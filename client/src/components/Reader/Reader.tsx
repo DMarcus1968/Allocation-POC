@@ -26,6 +26,7 @@ export default function Reader({ bookId, onBack }: Props) {
   const [tocOpen, setTocOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const annotationCache = useRef<Map<string, ChapterAnnotations>>(new Map());
+  const analysisInFlight = useRef<string | null>(null);
 
   // Load book
   useEffect(() => {
@@ -45,6 +46,10 @@ export default function Reader({ bookId, onBack }: Props) {
       return;
     }
 
+    // Prevent duplicate concurrent calls (e.g., from React StrictMode double-effect)
+    if (analysisInFlight.current === cacheKey) return;
+    analysisInFlight.current = cacheKey;
+
     setAnalyzing(true);
     setAnalysisNotice(null);
     try {
@@ -55,6 +60,13 @@ export default function Reader({ bookId, onBack }: Props) {
       const text = tempDiv.textContent || '';
 
       const result = await analyzeChapter(book.id, idx, text);
+
+      // Another call may have populated the cache while we waited
+      if (annotationCache.current.has(cacheKey)) {
+        setAnnotations(annotationCache.current.get(cacheKey)!);
+        return;
+      }
+
       const ann = { references: result.references, resolvedMedia: result.resolvedMedia || [] };
       annotationCache.current.set(cacheKey, ann);
       setAnnotations(ann);
@@ -63,6 +75,7 @@ export default function Reader({ bookId, onBack }: Props) {
       setAnnotations(null);
       setAnalysisNotice('Reference detection failed — check that ANTHROPIC_API_KEY is set in server/.env');
     } finally {
+      analysisInFlight.current = null;
       setAnalyzing(false);
     }
   }, []);
@@ -334,10 +347,17 @@ function normalizeForMatch(str: string): string {
     .replace(/[\u2013\u2014]/g, '-');
 }
 
-/** Find a text string in the DOM and return a Range covering it */
+/** Find a text string in the DOM and return a Range covering it.
+ *  Skips text already inside .fn-mark elements so repeated entities
+ *  match successive occurrences instead of double-wrapping the first. */
 function findTextRange(container: HTMLElement, searchText: string): Range | null {
-  // Collect all text nodes
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  // Collect text nodes, skipping those already highlighted
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.parentElement?.closest('.fn-mark')) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
   const textNodes: Text[] = [];
   let node: Text | null;
   while ((node = walker.nextNode() as Text | null)) {

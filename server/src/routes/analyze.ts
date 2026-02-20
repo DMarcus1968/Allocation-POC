@@ -72,7 +72,9 @@ router.post('/', async (req: Request, res: Response) => {
 
     for (const ref of references) {
       const cached = getCachedMedia(ref.id);
-      if (cached && cached.provider !== 'youtube-search') {
+      // Re-resolve if: no cache, youtube-search fallback, or artist_mention cached as non-wikipedia
+      const isStale = cached && ref.entity.kind === 'artist_mention' && cached.provider !== 'wikipedia';
+      if (cached && cached.provider !== 'youtube-search' && !isStale) {
         resolvedMedia.push(cached);
       } else {
         unresolvedRefs.push(ref);

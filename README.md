@@ -1,92 +1,137 @@
-# Meeting Notes — Local Conference Call Listener
+# Meeting Notes — Conference Call Listener
 
-A local CLI tool that captures audio from your video conference calls (Zoom, Teams, Google Meet, etc.) **without any app integration**, transcribes the audio using Whisper, and generates structured meeting notes with decisions and action items via Claude.
+A desktop app that listens to your video conference calls (Zoom, Teams, Google Meet, etc.) and automatically creates meeting notes with decisions and action items.
 
-Everything runs locally except the final summarization step (Claude API).
+**No plugins or integrations needed** — it captures the audio playing through your speakers.
 
-## Quick Start
+---
+
+## Setup Guide for macOS (Step by Step)
+
+### Step 1: Install Python
+
+1. Open **Safari** (the compass icon in your Dock)
+2. Go to **python.org/downloads**
+3. Click the big yellow **"Download Python 3.x"** button
+4. When the download finishes, open the `.pkg` file from your Downloads folder
+5. Click **Continue** through the installer, then **Install**
+6. Enter your Mac password when asked
+
+**How to check it worked:**
+- Open **Terminal** (press `Cmd + Space`, type "Terminal", press Enter)
+- Type `python3 --version` and press Enter
+- You should see something like `Python 3.12.x`
+
+---
+
+### Step 2: Install BlackHole (for capturing call audio)
+
+Your Mac doesn't let apps record system audio by default. BlackHole is a free tool that fixes this.
+
+1. Open Safari and go to **existential.audio/blackhole**
+2. Enter your email address
+3. Click **"Download BlackHole 2ch (Free)"**
+4. Open the downloaded file and follow the installer
+
+**After installing BlackHole, set up audio routing:**
+
+1. Open **Audio MIDI Setup** (press `Cmd + Space`, type "Audio MIDI Setup", press Enter)
+2. Click the **"+"** button at the bottom-left corner
+3. Select **"Create Multi-Output Device"**
+4. In the list on the right, check **both**:
+   - Your regular speakers/headphones (e.g., "MacBook Pro Speakers")
+   - "BlackHole 2ch"
+5. Make sure your speakers/headphones has the **"Drift Correction"** checkbox checked
+6. Right-click the new Multi-Output Device and choose **"Use This Device for Sound Output"**
+
+**What this does:** Your call audio now plays through both your speakers (so you can hear it) AND BlackHole (so the app can capture it).
+
+---
+
+### Step 3: Get a Claude API Key
+
+The app uses Claude to turn your transcript into organized notes.
+
+1. Open Safari and go to **console.anthropic.com**
+2. Create an account (or sign in)
+3. Go to **API Keys** in the left sidebar
+4. Click **"Create Key"**
+5. Copy the key — you'll paste it into the app later
+6. Add some credits to your account under **Billing** (the cost is very low — a typical 1-hour meeting costs about $0.01–0.05)
+
+---
+
+### Step 4: Download and Launch the App
+
+1. Open **Terminal** (press `Cmd + Space`, type "Terminal", press Enter)
+2. Copy and paste these commands one at a time, pressing Enter after each:
 
 ```bash
-# Install
-pip install -e .
-
-# Set your API key
-export ANTHROPIC_API_KEY='your-key-here'
-
-# Run
-meeting-notes
+cd ~/Desktop
+git clone https://github.com/DMarcus1968/Allocation-POC.git MeetingNotes
+cd MeetingNotes
+./start.sh
 ```
 
-The tool will:
-1. Show available audio devices — pick your system audio loopback
-2. Record until you press **Ctrl+C**
-3. Transcribe the audio locally with Whisper
-4. Send the transcript to Claude for structured notes
-5. Save everything to the `output/` directory
+The first launch will take a few minutes to install packages. After that, it starts instantly.
 
-## Platform Setup for System Audio Capture
+---
 
-The key requirement is capturing **system audio output** (what you hear in your speakers/headphones), not microphone input.
+### Step 5: Using the App
 
-### Linux (PulseAudio / PipeWire)
-Select the **"Monitor of ..."** device. This is the loopback device that captures all system audio output. No additional setup needed.
+1. **Paste your API key** in the "Anthropic API Key" field at the top
+2. **Select "BlackHole 2ch"** from the audio device dropdown
+3. **Start your video call** (Zoom, Teams, Meet, etc.)
+4. **Click "Start Recording"** — the timer starts counting
+5. When your call ends, **click "Stop Recording"**
+6. Wait while it:
+   - Saves a backup of the audio
+   - Transcribes the speech (1-3 minutes per hour of audio)
+   - Generates your meeting notes
+7. **Your notes appear** in the app with:
+   - **Summary** — what was discussed
+   - **Key Decisions** — what was decided
+   - **Action Items** — who does what, by when
+   - **Open Questions** — unresolved topics
+8. Click **"Save Notes..."** to save to a file
 
-### macOS
-macOS doesn't expose system audio as an input device natively. Install a virtual audio device:
-1. Install [BlackHole](https://github.com/ExistentialAudio/BlackHole) (free, open source)
-2. Create a Multi-Output Device in Audio MIDI Setup (your speakers + BlackHole)
-3. Set the Multi-Output as your system output
-4. Select BlackHole as the input device in this tool
+All files are also auto-saved to the `output/` folder.
 
-### Windows
-Select a **WASAPI Loopback** device. The tool automatically detects and labels these.
+---
 
-## Usage
+## Future Launches
 
+After the first setup, just:
+
+1. Open **Terminal**
+2. Type:
 ```bash
-# Interactive device selection
-meeting-notes
-
-# Specify device by index or name
-meeting-notes --device 5
-meeting-notes --device "Monitor"
-
-# Use a more accurate (but slower) Whisper model
-meeting-notes --whisper-model medium
-
-# Only transcribe, skip AI summarization
-meeting-notes --transcript-only
-
-# Generate notes from a previously saved transcript
-meeting-notes --from-transcript output/2024-01-15_143022_transcript.txt
+cd ~/Desktop/MeetingNotes && ./start.sh
 ```
 
-## Output
+**Tip:** You can create a shortcut by saving this as an Automator app (ask if you'd like help with that).
 
-Each session saves three files to `output/`:
-- `YYYY-MM-DD_HHMMSS_recording.wav` — raw audio backup
-- `YYYY-MM-DD_HHMMSS_transcript.txt` — full text transcript
-- `YYYY-MM-DD_HHMMSS_meeting_notes.md` — structured notes with:
-  - **Summary** — what was discussed
-  - **Key Decisions** — what was decided
-  - **Action Items** — who does what, by when
-  - **Open Questions** — unresolved topics
+---
 
-## Dependencies
+## Troubleshooting
 
-- **sounddevice** — cross-platform audio capture (wraps PortAudio)
-- **openai-whisper** — local speech-to-text (includes PyTorch)
-- **anthropic** — Claude API client for summarization
-- **numpy** — audio array processing
+**"No loopback device detected"**
+- Make sure BlackHole is installed (Step 2)
+- Click "Refresh" in the device dropdown
 
-## Whisper Model Sizes
+**"Can't hear my call anymore"**
+- Go to System Settings > Sound > Output
+- Make sure "Multi-Output Device" is selected (not just BlackHole alone)
 
-| Model  | Size   | Speed     | Accuracy   |
-|--------|--------|-----------|------------|
-| tiny   | 39 MB  | Fastest   | Lower      |
-| base   | 74 MB  | Fast      | Good       |
-| small  | 244 MB | Moderate  | Better     |
-| medium | 769 MB | Slow      | Very good  |
-| large  | 1.5 GB | Slowest   | Best       |
+**"No speech detected"**
+- Check that the correct audio device is selected
+- Make sure your call audio is actually playing through BlackHole
+- Try recording a YouTube video first as a test
 
-Default is `base`. Use `--whisper-model tiny` for speed or `--whisper-model medium` for accuracy.
+**"Claude API error"**
+- Check that your API key is correct
+- Make sure you have credits in your Anthropic account
+
+**App won't start**
+- Open Terminal and run: `python3 -m pip install --user sounddevice numpy openai-whisper anthropic`
+- Try again with `./start.sh`

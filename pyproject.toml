@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 meeting-notes = "meeting_notes.cli:main"
+meeting-notes-gui = "meeting_notes.gui:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]

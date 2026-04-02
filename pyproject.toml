@@ -1,0 +1,18 @@
+[project]
+name = "meeting-notes"
+version = "0.1.0"
+description = "Local conference call audio listener that generates meeting notes, decisions, and action items"
+requires-python = ">=3.10"
+dependencies = [
+    "sounddevice>=0.4.6",
+    "numpy>=1.24.0",
+    "openai-whisper>=20231117",
+    "anthropic>=0.39.0",
+]
+
+[project.scripts]
+meeting-notes = "meeting_notes.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"

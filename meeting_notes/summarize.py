@@ -1,4 +1,13 @@
+import os
+import ssl
+
 import anthropic
+import certifi
+import httpx
+
+# Fix SSL on macOS — ensure httpx (used by anthropic SDK) can find certificates
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 SYSTEM_PROMPT = """You are a meeting notes assistant. Given a transcript of a meeting, produce structured notes in markdown format with these exact sections:
 
@@ -24,7 +33,11 @@ Do not speculate or add information not discussed. If speakers are not identifia
 def generate_notes(transcript: str, api_key: str,
                    model: str = "claude-sonnet-4-20250514") -> str:
     """Send transcript to Claude and return structured meeting notes as markdown."""
-    client = anthropic.Anthropic(api_key=api_key)
+    # Create client with explicit SSL certificate bundle for macOS compatibility
+    http_client = httpx.Client(
+        verify=certifi.where(),
+    )
+    client = anthropic.Anthropic(api_key=api_key, http_client=http_client)
 
     # For very short transcripts, adjust expectations
     word_count = len(transcript.split())

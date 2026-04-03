@@ -406,3 +406,7 @@ class MeetingNotesApp:
 def main():
     app = MeetingNotesApp()
     app.run()
+
+
+if __name__ == "__main__":
+    main()

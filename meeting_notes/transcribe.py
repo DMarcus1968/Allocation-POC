@@ -1,6 +1,14 @@
+import ssl
 import sys
 
+import certifi
 import numpy as np
+
+# Fix SSL certificates on macOS — Python's bundled urllib doesn't always
+# find the system certificate store, especially on newer macOS versions.
+ssl._create_default_https_context = lambda: ssl.create_default_context(
+    cafile=certifi.where()
+)
 
 
 def _chunk_audio(audio: np.ndarray, sample_rate: int,

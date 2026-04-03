@@ -25,7 +25,7 @@ if ! python3 -c "import sounddevice" 2>/dev/null; then
     echo ""
     echo "Installing required packages (first time only, may take a few minutes)..."
     echo ""
-    python3 -m pip install --user -q sounddevice numpy openai-whisper anthropic 2>&1
+    python3 -m pip install --user -q sounddevice numpy openai-whisper anthropic certifi 2>&1
     echo ""
     echo "Installation complete!"
     echo ""
@@ -50,6 +50,9 @@ if ! system_profiler SPAudioDataType 2>/dev/null | grep -qi "blackhole"; then
     echo "Continuing anyway — you can set up BlackHole later."
     echo ""
 fi
+
+# Fix SSL certificates on macOS (needed for Whisper model download)
+export SSL_CERT_FILE=$(python3 -c "import certifi; print(certifi.where())" 2>/dev/null)
 
 echo "Starting Meeting Notes..."
 python3 -m meeting_notes.gui 2>&1

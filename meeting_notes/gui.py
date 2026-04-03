@@ -236,7 +236,8 @@ class MeetingNotesApp:
                         continue
 
         except Exception as e:
-            self.root.after(0, lambda: self._on_record_error(str(e)))
+            err_msg = str(e)
+            self.root.after(0, lambda: self._on_record_error(err_msg))
             return
 
         if chunks:
@@ -295,7 +296,8 @@ class MeetingNotesApp:
             )
             self.root.after(0, lambda: self._on_transcribe_complete(transcript))
         except Exception as e:
-            self.root.after(0, lambda: self._on_transcribe_error(str(e)))
+            err_msg = str(e)
+            self.root.after(0, lambda: self._on_transcribe_error(err_msg))
 
     def _on_transcribe_error(self, error_msg):
         self.status_label.config(text="Transcription failed", foreground="red")
@@ -334,7 +336,8 @@ class MeetingNotesApp:
             notes = generate_notes(transcript, api_key, self.config.claude_model)
             self.root.after(0, lambda: self._on_notes_complete(notes, transcript))
         except Exception as e:
-            self.root.after(0, lambda: self._on_notes_error(str(e), transcript))
+            err_msg = str(e)
+            self.root.after(0, lambda: self._on_notes_error(err_msg, transcript))
 
     def _on_notes_error(self, error_msg, transcript):
         self.status_label.config(text="Note generation failed", foreground="red")

@@ -65,10 +65,17 @@ class MeetingNotesApp:
         api_entry = ttk.Entry(key_frame, textvariable=self.api_key_var, show="*", width=50)
         api_entry.pack(fill=tk.X, pady=(2, 5))
 
+        # Load saved API key
         import os
+        self._key_file = Path(os.path.expanduser("~")) / ".meeting_notes_key"
+        saved_key = ""
+        if self._key_file.exists():
+            saved_key = self._key_file.read_text().strip()
         env_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if env_key:
-            self.api_key_var.set(env_key)
+        self.api_key_var.set(saved_key or env_key)
+
+        # Auto-save key when it changes
+        self.api_key_var.trace_add("write", self._save_api_key)
 
         # Audio devices — TWO dropdowns
         device_frame = ttk.LabelFrame(top, text="Audio Devices", padding=10)
@@ -151,6 +158,13 @@ class MeetingNotesApp:
         ttk.Button(bottom, text="Save Notes...", command=self._save_notes).pack(side=tk.LEFT)
         ttk.Button(bottom, text="Clear", command=self._clear_notes).pack(side=tk.LEFT, padx=8)
         ttk.Button(bottom, text="Load Transcript...", command=self._load_transcript).pack(side=tk.RIGHT)
+
+    def _save_api_key(self, *args):
+        """Save API key to disk so it persists between launches."""
+        key = self.api_key_var.get().strip()
+        if key:
+            self._key_file.write_text(key)
+            self._key_file.chmod(0o600)  # Only owner can read
 
     def _refresh_devices(self):
         devices = list_devices()

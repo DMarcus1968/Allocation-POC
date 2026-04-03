@@ -1,13 +1,5 @@
-import os
-import ssl
-
-import anthropic
-import certifi
-import httpx
-
-# Fix SSL on macOS — ensure httpx (used by anthropic SDK) can find certificates
-os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+import json
+import subprocess
 
 SYSTEM_PROMPT = """You are a meeting notes assistant. Given a transcript of a meeting, produce structured notes in markdown format with these exact sections:
 
@@ -32,14 +24,7 @@ Do not speculate or add information not discussed. If speakers are not identifia
 
 def generate_notes(transcript: str, api_key: str,
                    model: str = "claude-sonnet-4-20250514") -> str:
-    """Send transcript to Claude and return structured meeting notes as markdown."""
-    # Create client with explicit SSL certificate bundle for macOS compatibility
-    http_client = httpx.Client(
-        verify=certifi.where(),
-    )
-    client = anthropic.Anthropic(api_key=api_key, http_client=http_client)
-
-    # For very short transcripts, adjust expectations
+    """Send transcript to Claude via curl (bypasses Python SSL issues on macOS)."""
     word_count = len(transcript.split())
     user_message = f"Here is the meeting transcript ({word_count} words):\n\n{transcript}"
 
@@ -48,13 +33,36 @@ def generate_notes(transcript: str, api_key: str,
 
     print(f"Sending transcript to Claude ({model})...")
 
-    message = client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
+    payload = json.dumps({
+        "model": model,
+        "max_tokens": 4096,
+        "system": SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": user_message}],
+    })
+
+    result = subprocess.run(
+        [
+            "curl", "-s",
+            "https://api.anthropic.com/v1/messages",
+            "-H", f"x-api-key: {api_key}",
+            "-H", "content-type: application/json",
+            "-H", "anthropic-version: 2023-06-01",
+            "-d", payload,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
 
-    notes = message.content[0].text
+    if result.returncode != 0:
+        raise RuntimeError(f"curl failed: {result.stderr}")
+
+    response = json.loads(result.stdout)
+
+    if response.get("type") == "error":
+        error_msg = response.get("error", {}).get("message", "Unknown API error")
+        raise RuntimeError(f"Claude API error: {error_msg}")
+
+    notes = response["content"][0]["text"]
     print("Meeting notes generated.")
     return notes

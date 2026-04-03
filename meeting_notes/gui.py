@@ -246,6 +246,16 @@ class MeetingNotesApp:
             self.time_label.config(text=f"{mins:02d}:{secs:02d}")
         self.root.after(1000, self._update_timer)
 
+    @staticmethod
+    def _resample(audio, orig_rate, target_rate):
+        """Resample audio from orig_rate to target_rate using linear interpolation."""
+        if orig_rate == target_rate:
+            return audio
+        duration = len(audio) / orig_rate
+        target_len = int(duration * target_rate)
+        indices = np.linspace(0, len(audio) - 1, target_len)
+        return np.interp(indices, np.arange(len(audio)), audio).astype(np.float32)
+
     def _record_worker(self):
         """Record from both system audio and microphone simultaneously, then mix."""
         system_chunks = []
@@ -259,17 +269,23 @@ class MeetingNotesApp:
         def mic_callback(indata, frames, time, status):
             mic_queue.put(indata.copy())
 
+        # Use each device's native sample rate to avoid silent failures
+        sys_info = sd.query_devices(self._system_device["index"])
+        mic_info = sd.query_devices(self._mic_device["index"])
+        sys_rate = int(sys_info["default_samplerate"])
+        mic_rate = int(mic_info["default_samplerate"])
+
         try:
             system_stream = sd.InputStream(
                 device=self._system_device["index"],
-                samplerate=self.config.sample_rate,
+                samplerate=sys_rate,
                 channels=1,
                 dtype="float32",
                 callback=system_callback,
             )
             mic_stream = sd.InputStream(
                 device=self._mic_device["index"],
-                samplerate=self.config.sample_rate,
+                samplerate=mic_rate,
                 channels=1,
                 dtype="float32",
                 callback=mic_callback,
@@ -294,6 +310,8 @@ class MeetingNotesApp:
             return
 
         # Mix both audio sources together
+        target_rate = self.config.sample_rate  # 16000 for Whisper
+
         if system_chunks or mic_chunks:
             system_audio = np.concatenate(system_chunks, axis=0) if system_chunks else np.array([], dtype=np.float32)
             mic_audio = np.concatenate(mic_chunks, axis=0) if mic_chunks else np.array([], dtype=np.float32)
@@ -304,7 +322,13 @@ class MeetingNotesApp:
             if mic_audio.ndim > 1:
                 mic_audio = mic_audio.mean(axis=1)
 
-            # Match lengths (they may differ slightly)
+            # Resample both to 16kHz for Whisper
+            if len(system_audio) > 0:
+                system_audio = self._resample(system_audio, sys_rate, target_rate)
+            if len(mic_audio) > 0:
+                mic_audio = self._resample(mic_audio, mic_rate, target_rate)
+
+            # Match lengths (they may differ slightly after resampling)
             min_len = min(len(system_audio), len(mic_audio)) if len(system_audio) > 0 and len(mic_audio) > 0 else 0
 
             if min_len > 0:

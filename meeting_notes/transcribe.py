@@ -1,14 +1,17 @@
+import os
+import subprocess
 import ssl
 import sys
 
 import certifi
 import numpy as np
 
-# Fix SSL certificates on macOS — Python's bundled urllib doesn't always
-# find the system certificate store, especially on newer macOS versions.
-ssl._create_default_https_context = lambda: ssl.create_default_context(
-    cafile=certifi.where()
-)
+# Fix SSL certificates on macOS — set environment variable AND patch ssl module.
+# Python 3.14 on macOS Tahoe doesn't find system certs reliably.
+os.environ["SSL_CERT_FILE"] = certifi.where()
+os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+_certifi_context = ssl.create_default_context(cafile=certifi.where())
+ssl._create_default_https_context = lambda: _certifi_context
 
 
 def _chunk_audio(audio: np.ndarray, sample_rate: int,
@@ -57,6 +60,39 @@ def _deduplicate_overlap(prev_text: str, curr_text: str, overlap_words: int = 20
     return curr_text
 
 
+def _ensure_model_downloaded(model_size: str, whisper_module):
+    """Download the Whisper model via curl if not already cached.
+
+    Python's SSL on macOS Tahoe is broken, so we use curl for HTTPS downloads.
+    """
+    models = getattr(whisper_module, "_MODELS", {})
+    if model_size not in models:
+        return  # Unknown model, let whisper handle it
+
+    url = models[model_size]
+
+    # Determine whisper's cache directory
+    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "whisper")
+    os.makedirs(cache_dir, exist_ok=True)
+
+    model_file = os.path.join(cache_dir, os.path.basename(url))
+
+    if os.path.exists(model_file):
+        return  # Already downloaded
+
+    print(f"Downloading Whisper '{model_size}' model (this is a one-time download)...")
+    result = subprocess.run(
+        ["curl", "-L", "--progress-bar", "-o", model_file, url],
+        timeout=600,
+    )
+    if result.returncode != 0:
+        # Clean up partial download
+        if os.path.exists(model_file):
+            os.remove(model_file)
+        raise RuntimeError(f"Failed to download Whisper model. curl exit code: {result.returncode}")
+    print("Model downloaded.")
+
+
 def transcribe(audio: np.ndarray, sample_rate: int = 16000,
                model_size: str = "base", chunk_secs: int = 300,
                overlap_secs: int = 15) -> str:
@@ -71,6 +107,9 @@ def transcribe(audio: np.ndarray, sample_rate: int = 16000,
         print("Error: openai-whisper is not installed.")
         print("Install it with: pip install openai-whisper")
         sys.exit(1)
+
+    # Ensure model is downloaded (use curl to bypass Python SSL issues on macOS)
+    _ensure_model_downloaded(model_size, whisper)
 
     model = whisper.load_model(model_size)
     print(f"Using Whisper model: {model_size}")

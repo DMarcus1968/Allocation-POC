@@ -1,3 +1,4 @@
+import platform
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -18,6 +19,22 @@ class MeetingNotesApp:
         self.root.title("Meeting Notes")
         self.root.geometry("800x700")
         self.root.minsize(600, 500)
+
+        # Force window to front on macOS
+        if platform.system() == "Darwin":
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.after(100, lambda: self.root.attributes("-topmost", False))
+            # Bring Python/Tk to the foreground
+            try:
+                import subprocess
+                subprocess.Popen([
+                    "osascript", "-e",
+                    'tell application "System Events" to set frontmost of '
+                    'the first process whose unix id is (do shell script "echo $PPID") to true'
+                ])
+            except Exception:
+                pass
 
         # State
         self.config = Config()

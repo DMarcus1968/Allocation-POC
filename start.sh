@@ -52,4 +52,15 @@ if ! system_profiler SPAudioDataType 2>/dev/null | grep -qi "blackhole"; then
 fi
 
 echo "Starting Meeting Notes..."
-python3 -m meeting_notes.gui
+python3 -m meeting_notes.gui 2>&1
+
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "========================================="
+    echo "  The app exited with an error."
+    echo "========================================="
+    echo ""
+    echo "Please copy everything above and share it."
+    echo ""
+    read -p "Press Enter to close..."
+fi

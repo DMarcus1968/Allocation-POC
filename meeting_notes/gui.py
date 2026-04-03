@@ -328,17 +328,22 @@ class MeetingNotesApp:
             if len(mic_audio) > 0:
                 mic_audio = self._resample(mic_audio, mic_rate, target_rate)
 
-            # Match lengths (they may differ slightly after resampling)
+            # Mix by summing (not averaging) so quiet sources don't dilute loud ones.
+            # Then normalize to prevent clipping.
             min_len = min(len(system_audio), len(mic_audio)) if len(system_audio) > 0 and len(mic_audio) > 0 else 0
 
             if min_len > 0:
-                # Mix: average the two sources
-                mixed = (system_audio[:min_len] + mic_audio[:min_len]) / 2.0
+                # Sum the two sources
+                mixed = system_audio[:min_len] + mic_audio[:min_len]
                 # Append any remaining audio from the longer source
                 if len(system_audio) > min_len:
-                    mixed = np.concatenate([mixed, system_audio[min_len:] / 2.0])
+                    mixed = np.concatenate([mixed, system_audio[min_len:]])
                 elif len(mic_audio) > min_len:
-                    mixed = np.concatenate([mixed, mic_audio[min_len:] / 2.0])
+                    mixed = np.concatenate([mixed, mic_audio[min_len:]])
+                # Normalize to prevent clipping
+                peak = np.abs(mixed).max()
+                if peak > 1.0:
+                    mixed = mixed / peak
             elif len(system_audio) > 0:
                 mixed = system_audio
             elif len(mic_audio) > 0:
@@ -346,6 +351,12 @@ class MeetingNotesApp:
             else:
                 self.root.after(0, lambda: self._on_record_error("No audio captured"))
                 return
+
+            # Boost quiet audio so Whisper can detect speech
+            peak = np.abs(mixed).max()
+            if 0 < peak < 0.3:
+                mixed = mixed * (0.8 / peak)
+                mixed = np.clip(mixed, -1.0, 1.0)
 
             self.audio_data = mixed
             self.root.after(0, self._on_record_complete)

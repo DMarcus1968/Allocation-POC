@@ -293,16 +293,18 @@ class MeetingNotesApp:
 
             with system_stream, mic_stream:
                 while not self._stop_recording:
-                    try:
-                        chunk = system_queue.get(timeout=0.1)
-                        system_chunks.append(chunk)
-                    except queue.Empty:
-                        pass
-                    try:
-                        chunk = mic_queue.get(timeout=0.1)
-                        mic_chunks.append(chunk)
-                    except queue.Empty:
-                        pass
+                    sd.sleep(100)  # Wait 100ms between drain cycles
+                    # Drain ALL available chunks from both queues
+                    while not system_queue.empty():
+                        try:
+                            system_chunks.append(system_queue.get_nowait())
+                        except queue.Empty:
+                            break
+                    while not mic_queue.empty():
+                        try:
+                            mic_chunks.append(mic_queue.get_nowait())
+                        except queue.Empty:
+                            break
 
         except Exception as e:
             err_msg = str(e)

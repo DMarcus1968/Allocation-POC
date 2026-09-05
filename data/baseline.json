@@ -1,0 +1,231 @@
+{
+  "event": "Nova Rae \u2014 One Night at Meridian Stadium",
+  "status": "Synthetic modeled estimate",
+  "summary": {
+    "seed": 2026,
+    "fans": 500000,
+    "tickets_requested": 1250621,
+    "available_supply": 68500,
+    "gross_capacity": 74000,
+    "holds": 5500,
+    "demand_supply_ratio": 18.3,
+    "quantity": {
+      "1": 62298,
+      "2": 250047,
+      "3": 62391,
+      "4": 125264
+    },
+    "demand_by_zone": {
+      "front_floor": 109299,
+      "front_lower": 207827,
+      "mid_floor": 239082,
+      "mid_lower": 234111,
+      "rear_floor": 200008,
+      "rear_lower": 149467,
+      "premium_upper": 86121,
+      "standard_upper": 24706
+    },
+    "cohorts": {
+      "fan_club": 109725,
+      "past_buyer": 154688,
+      "merch_buyer": 90259,
+      "streaming": 210196,
+      "new_fan": 135265,
+      "sponsor": 59658,
+      "local": 189996,
+      "vip_oriented": 39792
+    },
+    "vip_demand": 101911
+  },
+  "zones": [
+    {
+      "id": "front_floor",
+      "name": "Front Floor",
+      "rank": 1,
+      "floor": 350,
+      "ceiling": 700,
+      "price": 625,
+      "capacity": 6500,
+      "holds": 700,
+      "color": "#f06449",
+      "vip": true,
+      "block_size": 20
+    },
+    {
+      "id": "front_lower",
+      "name": "Front Lower Bowl",
+      "rank": 2,
+      "floor": 250,
+      "ceiling": 650,
+      "price": 475,
+      "capacity": 9500,
+      "holds": 900,
+      "color": "#f49d55",
+      "vip": true,
+      "block_size": 20
+    },
+    {
+      "id": "mid_floor",
+      "name": "Mid Floor",
+      "rank": 3,
+      "floor": 300,
+      "ceiling": 500,
+      "price": 425,
+      "capacity": 6500,
+      "holds": 600,
+      "color": "#e9c46a",
+      "vip": true,
+      "block_size": 20
+    },
+    {
+      "id": "mid_lower",
+      "name": "Mid Lower Bowl",
+      "rank": 4,
+      "floor": 200,
+      "ceiling": 400,
+      "price": 325,
+      "capacity": 10500,
+      "holds": 800,
+      "color": "#62c6a5",
+      "vip": true,
+      "block_size": 20
+    },
+    {
+      "id": "rear_floor",
+      "name": "Rear Floor",
+      "rank": 5,
+      "floor": 250,
+      "ceiling": 350,
+      "price": 325,
+      "capacity": 6500,
+      "holds": 500,
+      "color": "#5ab5d8",
+      "vip": true,
+      "block_size": 20
+    },
+    {
+      "id": "rear_lower",
+      "name": "Rear Lower Bowl",
+      "rank": 6,
+      "floor": 150,
+      "ceiling": 300,
+      "price": 245,
+      "capacity": 10500,
+      "holds": 800,
+      "color": "#6f8ee8",
+      "vip": true,
+      "block_size": 20
+    },
+    {
+      "id": "premium_upper",
+      "name": "Premium Upper",
+      "rank": 7,
+      "floor": 100,
+      "ceiling": 225,
+      "price": 175,
+      "capacity": 11000,
+      "holds": 600,
+      "color": "#9277d8",
+      "vip": false,
+      "block_size": 20
+    },
+    {
+      "id": "standard_upper",
+      "name": "Standard Upper",
+      "rank": 8,
+      "floor": 75,
+      "ceiling": 175,
+      "price": 125,
+      "capacity": 13000,
+      "holds": 600,
+      "color": "#bf7fbc",
+      "vip": false,
+      "block_size": 20
+    }
+  ],
+  "proof": {
+    "early_advantage": false,
+    "timestamp_match_rate": 1.0,
+    "registration_peak": 7100,
+    "onsale_peak": 286000
+  },
+  "allocation": {
+    "allocated": 67952,
+    "exact_requests": 23840,
+    "negotiated_tickets": 6840,
+    "remaining_inventory": 548,
+    "unfulfilled_demand": 1182669
+  },
+  "comparison": [
+    {
+      "metric": "Revenue",
+      "async": "$22.8M",
+      "race": "$20.1M"
+    },
+    {
+      "metric": "Sell-through",
+      "async": "99.2%",
+      "race": "91.0%"
+    },
+    {
+      "metric": "Exact request fulfillment",
+      "async": "34.8%",
+      "race": "27.1%"
+    },
+    {
+      "metric": "Negotiated fulfillment",
+      "async": "6,840",
+      "race": "\u2014"
+    },
+    {
+      "metric": "Fan active time",
+      "async": "6 min",
+      "race": "94 min"
+    },
+    {
+      "metric": "Peak concurrent users",
+      "async": "7,100",
+      "race": "286,000"
+    },
+    {
+      "metric": "Normalized capacity",
+      "async": "1.0\u00d7",
+      "race": "40.3\u00d7"
+    },
+    {
+      "metric": "Bot speed advantage",
+      "async": "None in allocation",
+      "race": "Material"
+    },
+    {
+      "metric": "Intervention window",
+      "async": "4 days",
+      "race": "Minutes"
+    },
+    {
+      "metric": "Payment failures",
+      "async": "1,420 re-cleared",
+      "race": "5,180 lost/returned"
+    }
+  ],
+  "negotiations": [
+    {
+      "fan": "Maya Chen",
+      "request": "4 \u00d7 Front Floor",
+      "reply": "I can keep your group together in Rear Floor at $325 each, or allocate 2 Front Floor at $625 each.",
+      "status": "Accepted Rear Floor"
+    },
+    {
+      "fan": "Jordan Brooks",
+      "request": "2 \u00d7 Front Lower Bowl",
+      "reply": "Mid Lower Bowl is available at the approved $325 price; same quantity, adjacent.",
+      "status": "Pre-authorized"
+    },
+    {
+      "fan": "Sofia Martinez",
+      "request": "2 \u00d7 Premium Upper",
+      "reply": "A second-show option could preserve Premium Upper at $175 each.",
+      "status": "Awaiting response"
+    }
+  ]
+}
